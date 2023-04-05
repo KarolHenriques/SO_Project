@@ -93,8 +93,9 @@ int main(int argc, char *argv[], char** envp){
     serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
     serv_addr.sin_port = htons(atoi(argv[2]));
     
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
         pexit("connect() failed");
+    }
     
     printf("client connected to IP = %s PORT = %s\n", argv[1], argv[2]);
     
@@ -111,12 +112,12 @@ int main(int argc, char *argv[], char** envp){
     //open File
     int fd = open("sharedTextFile.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     
-    if(fd < 0){
+    if(fd == -1){
         pexit("file opening/creation error");
     }
     
     for (i = 0; i < n_batches; i++) {
-        for (j = 0; j < batch_size && (i * batch_size + j) < n_requests/*n_batches*/; j++) {
+        for (j = 0; j < batch_size && (i * batch_size + j) < n_requests; j++) {
             pid = fork();
             if (pid == -1) {
                 handle_error("fork");
@@ -128,29 +129,28 @@ int main(int argc, char *argv[], char** envp){
                     return 1;
                 }
                 total_bytes_received = 0;
-                //output: Failed to receive HTTP response: Connection reset by peer
-
+                bytes_received = 0;
                 do {
                     bytes_received = recv(sockfd, buffer + total_bytes_received, BUFSIZE - total_bytes_received, 0);
-                    if (bytes_received < 0) {
+                    if (bytes_received < 0){
                         perror("Failed to receive HTTP response");
                         return 1;
+                    }
+                    if(bytes_received == 0){
+                        break;
                     }
                     total_bytes_received += bytes_received;
                 } while (bytes_received > 0);
                 
                 // Extract the HTTP response code
-                /*memcpy(response_code, buffer + 9, 3); // HTTP response code is at position 9
-                response_code[3] = '\0';
-                printf("HTTP response code: %s\n", response_code);*/
                 char* http_start = strstr(buffer, "HTTP/1.1");
                 if (http_start == NULL) {
                     printf("Invalid HTTP response\n");
                     return 1;
                 }
-                char* code_start = http_start + 9; // Skip "HTTP/1.1 "
+                char* code_start = http_start + 9; //Skip "HTTP/1.1 "
                 char* code_end = strchr(code_start, ' '); // Response code ends with a space
-                                
+                
                 if (code_end == NULL) {
                     printf("Invalid HTTP response\n");
                     return 1;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[], char** envp){
                 
                 printf("HTTP response code: %s\n", response_code);
                 
-                char toFile[30];
+                char toFile[MAX_LINE_SIZE];
                 int pid_ = getpid();
                 sprintf(toFile, "%d;%s\n", pid_, response_code);
                 if(write(fd, toFile, strlen(toFile)) < 0){
@@ -172,6 +172,7 @@ int main(int argc, char *argv[], char** envp){
                     pexit("writing to STDOUT_FILENO error");
                 }
                 close(fd);
+                close(sockfd);
                 exit(EXIT_SUCCESS);
             }
             else{
