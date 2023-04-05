@@ -1,6 +1,6 @@
 //
 //  SO_Project_1version.c
-//  
+//
 //
 //  Created by Karol Henriques on 04/04/2023.
 //
@@ -138,8 +138,26 @@ int main(int argc, char *argv[], char** envp){
                 } while (bytes_received > 0);
                 
                 // Extract the HTTP response code
-                memcpy(response_code, buffer + 9, 3); // HTTP response code is at position 9
+                /*memcpy(response_code, buffer + 9, 3); // HTTP response code is at position 9
                 response_code[3] = '\0';
+                printf("HTTP response code: %s\n", response_code);*/
+                char* http_start = strstr(buffer, "HTTP/1.1");
+                if (http_start == NULL) {
+                    printf("Invalid HTTP response\n");
+                    return 1;
+                }
+                char* code_start = http_start + 9; // Skip "HTTP/1.1 "
+                char* code_end = strchr(code_start, ' '); // Response code ends with a space
+                
+                if (code_end == NULL) {
+                    printf("Invalid HTTP response\n");
+                    return 1;
+                }
+                
+                size_t code_len = code_end - code_start;
+                memcpy(response_code, code_start, code_len);
+                response_code[code_len] = '\0';
+                
                 printf("HTTP response code: %s\n", response_code);
                 
                 char toFile[30];
