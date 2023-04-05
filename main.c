@@ -149,6 +149,9 @@ int main(int argc, char *argv[], char** envp){
                 char* code_start = http_start + 9; // Skip "HTTP/1.1 "
                 char* code_end = strchr(code_start, ' '); // Response code ends with a space
                 
+                //output: Failed to receive HTTP response: Connection reset by peer
+
+                
                 if (code_end == NULL) {
                     printf("Invalid HTTP response\n");
                     return 1;
