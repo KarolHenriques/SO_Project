@@ -18,6 +18,11 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <stdbool.h>
+#include <limits.h>
+#include <signal.h>
+
+//#include "aux_functions_SO_Project.h"
 
 #define SOCK_PATH "/tmp/socket"
 #define MAX_LINE_SIZE 1024
@@ -28,14 +33,139 @@ gettimeofday(&tv2, NULL); \
 timersub(&tv2, &tv1, &tv); \
 time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 
-int pexit(char * msg){
+#define IP_MAX_LENGTH 16
+#define URL_MAX_LENGTH 40
+#define REQUEST_MAX 1000000
+
+//Global variables
+
+int pipefd[2];
+volatile bool flagCreatChildren = true;
+long* childrenPids;
+
+int pexit(char* msg){
     perror(msg);
     exit(1);
 }
 
-void handle_error(const char* message) {
-    perror(message);
-    exit(EXIT_FAILURE);
+struct Record {
+    pid_t pid;
+    int bsn;
+    int rsn;
+    int rc;
+    double t;
+};
+
+struct Node {
+    struct Record record;
+    struct Node* next;
+};
+
+void insertRecord(struct Node** head, struct Record record) {
+    struct Node* new_node = (struct Node*)malloc(sizeof(struct Node));
+    if (new_node == NULL) {
+        pexit("Unable to allocate memory");
+    }
+    new_node->record = record;
+    new_node->next = *head;
+    *head = new_node;
+}
+
+void pipeToFile(int pipefd[], char fd, bool writeIt) {
+    close(pipefd[1]);
+    
+    int pid, bsn, rsn, rc;
+    float t;
+    char buf[BUFSIZE];
+    ssize_t count = read(pipefd[0], buf, sizeof(buf));
+    
+    if (count == -1) {
+        pexit("read");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
+    
+    close(pipefd[0]);
+    
+    if(writeIt){
+        if(write(fd, buf, strlen(buf)) < 0){
+            pexit("writing to shared file error (parent)");
+        }
+        close(fd);
+    }
+}
+
+void readFromFile(char* fileName, struct Node** head){
+    //the file is open because it is shared!
+    char buf[MAX_LINE_SIZE];
+    char c;
+    int n = 0;
+    size_t len = 0, string_len = 0;
+    int fd = open(fileName, O_RDONLY);
+    if (fd == -1) {
+        pexit("Unable to open file");
+    }
+    
+    printf("Parent reading from file:\n");
+    struct Record record;
+    
+    while ((n = read(fd, buf, MAX_LINE_SIZE)) > 0) {
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                // End of line
+                printf("%.*s\n", (int)len, buf);
+                //Create a new Record:
+                
+                record.pid = atoi(strtok(buf, ";"));
+                record.bsn = atoi(strtok(NULL, ";"));
+                record.rsn = atoi(strtok(NULL, ";"));
+                record.rc = atoi(strtok(NULL, ";"));
+                record.t = atof(strtok(NULL, ";"));
+                
+                //Insert at linked list
+                
+                printf("The pin I'm gonna save in the struct: %d", record.pid);
+                
+                insertRecord(head, record);
+                
+                len = 0;
+            } else {
+                // Append the character to the current line
+                if (len == MAX_LINE_SIZE - 1) {
+                    pexit("Line too long");
+                }
+                buf[len] = buf[i];
+                len++;
+            }
+        }
+    }
+    
+    if(n == 0){ //end of file
+        if (len > 0) {
+            // Print the last line
+            printf("%.*s\n", (int) len, buf);
+        }
+    }
+    if (n == -1) {
+        pexit("Unable to read file");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+}
+
+void terminateChildren(){
+    int status;
+    for(long i = 0; i < sizeof(childrenPids); i++){
+        kill(SIGINT, childrenPids[i]);
+        waitpid(childrenPids[i], &status, 0);
+        if (WIFSIGNALED(status)) {
+            printf("Child %ld terminated by signal %d\n", childrenPids[i], WTERMSIG(status));
+        } else {
+            printf("Child %ld terminated with status %d\n", childrenPids[i], WEXITSTATUS(status));
+            kill(SIGKILL, childrenPids[i]);
+        }
+    }
 }
 
 void handle_signal(int signal) {
@@ -46,15 +176,20 @@ void handle_signal(int signal) {
     }
     if(signal == SIGINT){
         printf("Ending the child processes\n");
+        
         /*Code to clean and close everything*/
+        flagCreatChildren = false; //prevent the creation of more children proccesses
+        
+        //terminate all existenting children
+        terminateChildren();
+        
+        //read availa
+        pipeToFile(pipefd, 0, 1);
         exit(EXIT_SUCCESS);
     }
 }
 
 int main(int argc, char *argv[], char** envp){
-    
-    signal(SIGPIPE, handle_signal);
-    signal(SIGINT, handle_signal);
     
     int i, sockfd, batch_size, n_batches, j, bytes_received, total_bytes_received;
     long n_requests;
@@ -64,10 +199,18 @@ int main(int argc, char *argv[], char** envp){
     float time_delta;
     
     //Pipe variables
-    int pipefd[2];
+    /*int pipefd[2];
+     int *pipefdP = pipefd[0];*/
     
     //child variables
     pid_t pid;
+    
+    //File variables
+    char* fileName = "sharedTextFile.txt";
+    
+    signal(SIGPIPE, handle_signal);
+    signal(SIGINT, handle_signal);
+    
     
     if (argc != 4 && argc != 5) {
         printf("Usage: ./client <SERVER IP ADDRESS> <LISTENING PORT> <N REQUESTS> <BATCH SIZE>\n");
@@ -82,13 +225,29 @@ int main(int argc, char *argv[], char** envp){
     if (*requests != '\0') {
         pexit("Invalid number of requests");
     }
-    /*n_requests = atoi(argv[3]);*/
-    batch_size = atoi(argv[4]);
-    n_batches = (n_requests + batch_size - 1) / batch_size;  // Round up division
     
+    //Alloc memory to the childrenPids
+    childrenPids = (long*)malloc(n_requests * sizeof(long));
+    
+    /*n_requests = atoi(argv[3]);*/
+    /*batch_size = atoi(argv[4]);
+     */
+    
+    if(n_requests > REQUEST_MAX){
+        pexit("Max number of requests exceeded");
+    }
+    
+    char *batch;
+    n_batches = strtol(argv[4], &batch, 10); //10 stands for the decimal system
+    
+    if (*batch != '\0') {
+        pexit("Invalid number of batches");
+    }
+    
+    batch_size = (n_requests + batch_size - 1) / batch_size;  // Round up division
     
     //open File
-    int fd = open("sharedTextFile.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int/**/ fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     
     if(fd == -1){
         pexit("file opening/creation error");
@@ -103,16 +262,18 @@ int main(int argc, char *argv[], char** envp){
     //Start to count the total time of the code
     TIMER_START();
     for (i = 0; i < n_batches; i++) {
-        for (j = 0; j < batch_size && (i * batch_size + j) < n_requests/**/; j++) {
+        for (j = 0; j < batch_size && (i * batch_size + j) < n_requests && flagCreatChildren; j++) {
             pid = fork();
             if (pid == -1) {
-                handle_error("fork");
+                pexit("fork");
             } else if(pid == 0){
                 //close the pipe channel that won't be used (child only writes to the pipe)
                 close(pipefd[0]);
                 
                 //start count the time
                 TIMER_START();
+                
+                //socket
                 if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
                     pexit("socket() failed");
                 }
@@ -126,10 +287,10 @@ int main(int argc, char *argv[], char** envp){
                 
                 printf("client connected to IP = %s PORT = %s\n", argv[1], argv[2]);
                 //Get url
-                char ip_addr[16];
+                char ip_addr[IP_MAX_LENGTH];
                 strcpy(ip_addr, argv[1]);
                 int port = atoi(argv[2]);
-                char url[40];
+                char url[URL_MAX_LENGTH];
                 
                 sprintf(url, "http://%s:%d", ip_addr, port);/**/
                 
@@ -175,22 +336,24 @@ int main(int argc, char *argv[], char** envp){
                 
                 printf("HTTP response code: %s\n", response_code);
                 
-                //Stop counting the time and prepare to write in a shared file and in a pipe
+                //Stop counting the time and prepare to write in a shared file and in a pipe or file
                 TIMER_STOP();
                 
                 char toFile[MAX_LINE_SIZE];
                 int pid_ = getpid();
-                sprintf(toFile, "%d;%s;%.2f;%d;%d\n", pid_, response_code, time_delta, i, j);
-                if(write(fd, toFile, strlen(toFile)) < 0){
-                    pexit("writing to shared file error");
-                }
+                sprintf(toFile, "%d;%d;%d;%s;%.2f\n", pid_, j, i, response_code, time_delta);
+                
+                //child writing to the file
+                /*if(write(fd, toFile, strlen(toFile)) < 0){
+                 pexit("writing to shared file error (child %d)", getpid());
+                 }*/
                 if(write(STDOUT_FILENO, toFile, strlen(toFile)) < 0){
                     pexit("writing to STDOUT_FILENO error");
                 }
                 close(sockfd);
                 
                 if(write(pipefd[1], toFile, strlen(toFile)) < 0){
-                    pexit("pipe response");
+                    pexit("pipe writing");
                 }
                 close(pipefd[1]);
                 exit(EXIT_SUCCESS);
@@ -198,18 +361,18 @@ int main(int argc, char *argv[], char** envp){
             else{
                 //parent code
                 //should wait each child from each batch finishes
+                //childrenPids[i] = pid;
                 for(int i = 0; i < batch_size; i++){
+                    //Add pids in a int array to end all children if necessary
                     waitpid(pid, NULL, 0);
                 }
             }
         }
     }
-    for(int i = 0; i < n_batches / batch_size; i++){ //i < requests/batch
+    for(int i = 0; i < n_requests / n_batches; i++){ //i < requests/batch
         waitpid(pid, NULL, 0);
     }
-    
     //wait children to end
-    close(fd);
     pid_t wpid;
     int status;
     while ((wpid = wait(&status)) > 0) {
@@ -218,24 +381,43 @@ int main(int argc, char *argv[], char** envp){
         } else if (WIFSIGNALED(status)) {
             printf("Child terminated by signal %d\n", WTERMSIG(status));
         }
-    }
+    }/**/
+    //terminateChildren();
     //now the father will read from the pipe
     
     //close channel that won't be used by parent process (writing channel)
-    close(pipefd[1]);
     
-    char buf[1024];
-    ssize_t count = read(pipefd[0], buf, sizeof(buf));
-        
-    if (count == -1) {
-        pexit("read");
-        exit(EXIT_FAILURE);
-    }
     
-    printf("Parent read message: %.*s\n", (int)count, buf);
-    close(pipefd[0]);
+    /*char buf[BUFSIZE];
+     ssize_t count = read(pipefd[0], buf, sizeof(buf));
+     
+     if (count == -1) {
+     pexit("read");
+     exit(EXIT_FAILURE);
+     }
+     
+     printf("Parent read message: %.*s\n", (int)count, buf);
+     
+     close(pipefd[0]);*/
+    
+    
+    pipeToFile(pipefd, fd, 1);
+    close(sockfd);
+    close(fd);
+    //struct Node* head = NULL;
+    //readFromFile(fileName, &head);
+    
+    //Parent writing to the file
+    /*if(write(fd, buf, strlen(buf)) < 0){
+     pexit("writing to shared file error (parent)");
+     }*/
+    
+    
     
     TIMER_STOP();
-    fprintf(stderr, "%f secs\n", time_delta / 1000);
+    
+    fprintf(stderr, "%f secs\n", time_delta);
 }
+
+
 
