@@ -41,10 +41,12 @@ time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 //Global variables
 
 int pipefd[2];
+int sockfd;
 volatile bool flagCreatChildren = true;
 long* childrenPids;
-//File variables
 char* fileName = "sharedTextFile.txt";
+struct timeval tv1, tv2, tv;
+float time_delta;
 
 int pexit(char* msg){
     perror(msg);
@@ -70,6 +72,47 @@ struct DataAnalysis {
     double maxTime;
     float totalTime;
 };
+
+ssize_t readn(int fd, void *buf, size_t n) {
+    size_t nleft = n;
+    ssize_t nread;
+    char *ptr = buf;
+    
+    while (nleft > 0) {
+        if ((nread = read(fd, ptr, nleft)) < 0) {
+            if (errno == EINTR)  /* Interrupted by signal */
+                nread = 0;      /* and call read() again */
+            else
+                return -1;      /* Error */
+        } else if (nread == 0)
+            break;              /* EOF */
+        
+        nleft -= nread;
+        ptr += nread;
+    }
+    
+    return n - nleft;           /* Return >= 0 */
+}
+
+ssize_t writen(int fd, const void *buf, size_t n) {
+    size_t nleft = n;
+    ssize_t nwritten;
+    const char *ptr = buf;
+    
+    while (nleft > 0) {
+        if ((nwritten = write(fd, ptr, nleft)) <= 0) {
+            if (errno == EINTR)  /* Interrupted by signal */
+                nwritten = 0;   /* and call write() again */
+            else
+                return -1;      /* Error */
+        }
+        
+        nleft -= nwritten;
+        ptr += nwritten;
+    }
+    
+    return n;                   /* Return >= 0 */
+}
 
 void insertRecord(struct Node** head, struct Record record) {
     struct Node* new_node = (struct Node*)malloc(sizeof(struct Node));
@@ -104,16 +147,41 @@ void printLinkedList(struct Node* head) {
     }
 }
 
+/*void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
+ close(pipefd[1]);
+ //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
+ int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+ if (fd == -1) {
+ pexit("Unable to open file");
+ }
+ 
+ char buf[BUFSIZE];
+ ssize_t count = read(pipefd[0], buf, sizeof(buf));
+ 
+ if (count == -1) {
+ pexit("read from pipe");
+ }
+ 
+ printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
+ 
+ if(writeIt){
+ if(write(fd, buf, strlen(buf)) < 0){
+ pexit("writing to shared file error (parent)");
+ }
+ }
+ close(pipefd[0]);
+ close(fd);
+ }*/
 void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     close(pipefd[1]);
-    //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
+    
     int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1) {
         pexit("Unable to open file");
     }
-
+    
     char buf[BUFSIZE];
-    ssize_t count = read(pipefd[0], buf, sizeof(buf));
+    ssize_t count = readn(pipefd[0], buf, sizeof(buf));
     
     if (count == -1) {
         pexit("read from pipe");
@@ -122,7 +190,7 @@ void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
     
     if(writeIt){
-        if(write(fd, buf, strlen(buf)) < 0){
+        if(writen(fd, buf, strlen(buf)) < 0){
             pexit("writing to shared file error (parent)");
         }
     }
@@ -144,9 +212,7 @@ struct Record saveToStruct(char buf[]){
     field = strtok(NULL, ";");
     record.t = atof(field);
     
-    printf("New stuct made\n");
     return record;
-    
 }
 
 void readFromFile(char* fileName, struct Node** head) {
@@ -176,13 +242,13 @@ void readFromFile(char* fileName, struct Node** head) {
     }
     
     /*if (len > 0) {
-        buf[len] = '\0';
-        record = saveToStruct(buf);
-        insertRecord(head, record);
-        count++;
-    }*/
+     buf[len] = '\0';
+     record = saveToStruct(buf);
+     insertRecord(head, record);
+     count++;
+     }*/
     
-    printf("Count (number of lines read from file): %d\n", count);
+    //printf("Count (number of lines read from file): %d\n", count);
     close(fd);
 }
 
@@ -200,28 +266,6 @@ void terminateChildren(){
     }
 }
 
-void handle_signal(int signal) {
-    printf("Received signal %d\n", signal);
-    if(signal == 13){
-        printf("Something was wrong with the channel\n");
-        exit(EXIT_FAILURE);
-    }
-    if(signal == SIGINT){
-        printf("Ending the child processes\n");
-        
-        /*Code to clean and close everything*/
-        flagCreatChildren = false; //prevent the creation of more children proccesses
-        
-        //terminate all existenting children
-        terminateChildren();
-        
-        //read available data
-        pipeToFile(pipefd, fileName, true);
-        
-        exit(EXIT_SUCCESS);
-    }
-}
-
 int countRecords(struct Node* head) {
     int count = 0;
     struct Node* current = head;
@@ -236,11 +280,11 @@ struct DataAnalysis* calculateStats(struct Node* head, float totalTime) {
     if (head == NULL) {
         return NULL;
     }
-
+    
     double sum = 0.0;
     double max_time = head->record.t;
     double min_time = head->record.t;
-
+    
     struct Node* current = head;
     while (current != NULL) {
         double t = current->record.t;
@@ -253,7 +297,7 @@ struct DataAnalysis* calculateStats(struct Node* head, float totalTime) {
         sum += t;
         current = current->next;
     }
-
+    
     double avg_time = sum / countRecords(head);
     
     struct DataAnalysis* dataRecord = (struct DataAnalysis*)malloc(sizeof(struct DataAnalysis));;
@@ -261,20 +305,55 @@ struct DataAnalysis* calculateStats(struct Node* head, float totalTime) {
     dataRecord->minTime = min_time;
     dataRecord->maxTime = max_time;
     dataRecord->totalTime = totalTime;
-
+    
     return dataRecord;
 }
 
+void DataAnalysisReport (struct Node* head, float time_delta){
+    struct DataAnalysis* dataReport = calculateStats(head, time_delta);
+    printf("Total time: %f, Average time: %f, Min time: %f, Max time: %f\n", dataReport->totalTime, dataReport->avrgTime, dataReport->minTime, dataReport->maxTime);/**/
+}
+
+void handle_signal(int signal) {
+    
+    printf("Received signal %d\n", signal);
+    
+    if(signal == 13){
+        printf("Something was wrong with the channel\n");
+        exit(EXIT_FAILURE);
+    }
+    if(signal == SIGINT){
+        printf("Ending the child processes\n");
+        
+        /*Code to clean and close everything*/
+        flagCreatChildren = false; //prevent the creation of more children proccesses
+        
+        //terminate all existenting children
+        terminateChildren();
+        close(sockfd);
+        
+        //read available data
+        pipeToFile(pipefd, fileName, true);
+        
+        //Save it to a struct to add
+        struct Node* head = NULL;
+        readFromFile(fileName, &head);
+        
+        //now the process ends here
+        TIMER_STOP();
+        
+        DataAnalysisReport (head, time_delta);
+        exit(EXIT_SUCCESS);
+    }
+}
 
 int main(int argc, char *argv[], char** envp){
     
-    int i, sockfd, batch_size, n_batches, j, bytes_received, total_bytes_received;
+    int i, /*sockfd,*/ batch_size, n_batches, j, bytes_received, total_bytes_received;
     long n_requests;
     char buffer[BUFSIZE], request[BUFSIZE], response_code[RESPONSE_SIZE];
     static struct sockaddr_in serv_addr;
-    struct timeval tv1, tv2, tv;
-    float time_delta;
-    
+
     //child variables
     pid_t pid;
     
@@ -297,10 +376,6 @@ int main(int argc, char *argv[], char** envp){
     
     //Alloc memory to the childrenPids
     childrenPids = (long*)malloc(n_requests * sizeof(long));
-    
-    /*n_requests = atoi(argv[3]);*/
-    /*batch_size = atoi(argv[4]);
-     */
     
     if(n_requests > REQUEST_MAX){
         pexit("Max number of requests exceeded");
@@ -462,19 +537,17 @@ int main(int argc, char *argv[], char** envp){
     
     pipeToFile(pipefd, fileName, true);
     close(sockfd);
+    
     //Linked list problem:
     struct Node* head = NULL;
     readFromFile(fileName, &head);
     
-    //printLinkedListElements(&head);
     printLinkedList(head);
     
-    fprintf(stderr, "%f secs\n", time_delta);
+    fprintf(stderr, "%f s\n", time_delta);
     
-    /*struct DataAnalysis* dataReport = calculateStats(head, time_delta);
+    DataAnalysisReport(head, time_delta);
     
-    printf("Total time: %f, Average time: %f, Min time: %f, Max time: %f\n", dataReport->totalTime, dataReport->avrgTime, dataReport->minTime, dataReport->maxTime);*/
-
     exit(EXIT_SUCCESS);
 }
 
