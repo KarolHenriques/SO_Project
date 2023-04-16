@@ -37,7 +37,7 @@ time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 #define URL_MAX_LENGTH 40
 #define REQUEST_MAX 1000000
 #define RESPONSE_SIZE 4
-#define CHUNK_SIZE 1024
+
 //Global variables
 
 int pipefd[2];
@@ -175,12 +175,12 @@ void readFromFile(char* fileName, struct Node** head) {
         }
     }
     
-    if (len > 0) {
+    /*if (len > 0) {
         buf[len] = '\0';
         record = saveToStruct(buf);
         insertRecord(head, record);
         count++;
-    }
+    }*/
     
     printf("Count (number of lines read from file): %d\n", count);
     close(fd);
@@ -471,9 +471,9 @@ int main(int argc, char *argv[], char** envp){
     
     fprintf(stderr, "%f secs\n", time_delta);
     
-    struct DataAnalysis* dataReport = calculateStats(head, time_delta);
+    /*struct DataAnalysis* dataReport = calculateStats(head, time_delta);
     
-    printf("Total time: %f, Average time: %f, Min time: %f, Max time: %f\n", dataReport->totalTime, dataReport->avrgTime, dataReport->minTime, dataReport->maxTime);
+    printf("Total time: %f, Average time: %f, Min time: %f, Max time: %f\n", dataReport->totalTime, dataReport->avrgTime, dataReport->minTime, dataReport->maxTime);*/
 
     exit(EXIT_SUCCESS);
 }
