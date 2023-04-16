@@ -61,18 +61,46 @@ struct Node {
     struct Node* next;
 };
 
-void insertRecord(struct Node** head, struct Record record) {
+struct Node* insertRecord(struct Node** head, struct Record record) {
     struct Node* new_node = (struct Node*)malloc(sizeof(struct Node));
     if (new_node == NULL) {
         pexit("Unable to allocate memory");
     }
     new_node->record = record;
     new_node->next = *head;
-    *head = new_node;
+    
+    if (*head == NULL) {
+            // If the linked list is empty, set the head pointer to the new node
+            *head = new_node;
+        } else {
+            // Otherwise, update the new node's next pointer to point to the current head
+            new_node->next = *head;
+            // Update the head pointer to point to the new node
+            *head = new_node;
+        }
+
+    //the insertions are happening in the head. So, we are returning the new head
+    printf("New node created with PID %d, next pointer is %p.\n", new_node->record.pid, new_node->next);
+    printf("Head pointer is %p.\n", *head);
+    return new_node;
 }
 
-void pipeToFile(int pipefd[], char fd, bool writeIt) {
+void printLinkedListElements(struct Node** head){
+    struct Node* current = *head;
+    
+    while (current != NULL) {
+        printf("PID: %d, BSN: %d, RSN: %d, RC: %d, T: %f\n", current->record.pid, current->record.bsn, current->record.rsn, current->record.rc, current->record.t);
+        current = current->next;
+    }
+}
+
+void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     close(pipefd[1]);
+    //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
+    int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1) {
+        pexit("Unable to open file");
+    }
     
     int pid, bsn, rsn, rc;
     float t;
@@ -80,24 +108,24 @@ void pipeToFile(int pipefd[], char fd, bool writeIt) {
     ssize_t count = read(pipefd[0], buf, sizeof(buf));
     
     if (count == -1) {
-        pexit("read");
-        exit(EXIT_FAILURE);
+        pexit("read from pipe");
     }
     
     printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
-    
-    close(pipefd[0]);
-    
+  
     if(writeIt){
         if(write(fd, buf, strlen(buf)) < 0){
             pexit("writing to shared file error (parent)");
         }
-        close(fd);
     }
+    close(pipefd[0]);
+    close(fd);
 }
 
-void readFromFile(char* fileName, struct Node** head){
-    //the file is open because it is shared!
+/*void readFromFile(char* fileName, struct Node** head){
+    
+    printf("head = %p\n", head);
+    
     char buf[MAX_LINE_SIZE];
     char c;
     int n = 0;
@@ -108,26 +136,46 @@ void readFromFile(char* fileName, struct Node** head){
     }
     
     printf("Parent reading from file:\n");
+    
     struct Record record;
     
     while ((n = read(fd, buf, MAX_LINE_SIZE)) > 0) {
         for (int i = 0; i < n; i++) {
             if (buf[i] == '\n') {
                 // End of line
-                printf("%.*s\n", (int)len, buf);
+                //printf("%.*s\n", (int)len, buf);
                 //Create a new Record:
+                printf("Create a new struc:\n");
                 
+                //struct Record record;
+
+                printf("Input string: %.*s\n", (int)len, buf);
                 record.pid = atoi(strtok(buf, ";"));
-                record.bsn = atoi(strtok(NULL, ";"));
+                printf("PID: %d\n", record.pid);
+                
+                //record.bsn = atoi(strtok(NULL, ";"));
+                //printf("BSN: %d\n", record.bsn);
+                char* token = strtok(NULL, ";");
+
+                if (token != NULL) {
+                    printf("BSN: %d\n", record.bsn);
+                    record.bsn = atoi(token);
+
+                } else {
+                    printf("%d", record.bsn);
+                    pexit("Strtok problem");
+                }
+                
                 record.rsn = atoi(strtok(NULL, ";"));
+                printf("RSN: %d\n", record.rsn);
                 record.rc = atoi(strtok(NULL, ";"));
+                printf("RC: %d\n", record.rc);
                 record.t = atof(strtok(NULL, ";"));
+                printf("T: %f\n", record.t);
                 
                 //Insert at linked list
-                
-                printf("The pin I'm gonna save in the struct: %d", record.pid);
-                
-                insertRecord(head, record);
+                //insertRecord(head, record);
+                *head = insertRecord(head, record);
                 
                 len = 0;
             } else {
@@ -146,13 +194,103 @@ void readFromFile(char* fileName, struct Node** head){
             // Print the last line
             printf("%.*s\n", (int) len, buf);
         }
+        //close(fd);
     }
     if (n == -1) {
         pexit("Unable to read file");
         exit(EXIT_FAILURE);
     }
     close(fd);
+}*/
+
+void readFromFile(char* fileName, struct Node** head){
+    printf("head = %p\n", head);
+    char buf[MAX_LINE_SIZE];
+    char c;
+    int n = 0, remaining_len = 0;
+    size_t len = 0, string_len = 0;
+    int fd = open(fileName, O_RDONLY);
+    if (fd == -1) {
+        pexit("Unable to open file");
+    }
+    printf("Parent reading from file:\n");
+    struct Record record;
+    static char remaining_buf[MAX_LINE_SIZE];
+    while ((n = read(fd, buf, MAX_LINE_SIZE)) > 0) {
+        if (remaining_len > 0) {
+            // If there's remaining buffer from the previous iteration, copy it to the beginning of the new buffer
+            memcpy(buf, remaining_buf, remaining_len);
+            len = remaining_len;
+        }
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                // End of line
+                string_len = len + i + 1; // Include the newline character
+                memcpy(remaining_buf, buf + i + 1, n - i - 1); // Copy remaining buffer to the static variable
+                remaining_len = n - i - 1; // Set the remaining buffer length
+                //Create a new Record:
+                //printf("Create a new struc:\n");
+                //struct Record record;
+                printf("Input string: %.*s\n", (int)string_len, buf);
+                record.pid = atoi(strtok(buf, ";"));
+                char* token = strtok(NULL, ";");
+
+                if (token != NULL) {
+                    printf("BSN: %d\n", record.bsn);
+                    record.bsn = atoi(token);
+
+                } else {
+                    printf("%d", record.bsn);
+                    pexit("Strtok problem");
+                }
+                
+                record.rsn = atoi(strtok(NULL, ";"));
+                printf("RSN: %d\n", record.rsn);
+                record.rc = atoi(strtok(NULL, ";"));
+                printf("RC: %d\n", record.rc);
+                record.t = atof(strtok(NULL, ";"));
+                printf("T: %f\n", record.t);
+                *head = insertRecord(head, record);
+                len = 0;
+                break;
+            }
+        }
+        len += n;
+    }
+    // If there's remaining buffer at the end of the file, create a new record with it
+    if (remaining_len > 0) {
+        string_len = len + remaining_len;
+        memcpy(buf, remaining_buf, remaining_len);
+        printf("Create a new struc:\n");
+        printf("Input string: %.*s\n", (int)string_len, buf);
+        record.pid = atoi(strtok(buf, ";"));
+        printf("PID: %d\n", record.pid);
+        
+        char* token = strtok(NULL, ";");
+
+        if (token != NULL) {
+            printf("BSN: %d\n", record.bsn);
+            record.bsn = atoi(token);
+
+        } else {
+            printf("%d", record.bsn);
+            pexit("Strtok problem");
+        }
+        
+        record.rsn = atoi(strtok(NULL, ";"));
+        printf("RSN: %d\n", record.rsn);
+        record.rc = atoi(strtok(NULL, ";"));
+        printf("RC: %d\n", record.rc);
+        record.t = atof(strtok(NULL, ";"));
+        printf("T: %f\n", record.t);
+        
+        //Insert at linked list
+        //insertRecord(head, record);
+        *head = insertRecord(head, record);
+    }
+    close(fd);
 }
+
 
 void terminateChildren(){
     int status;
@@ -181,7 +319,7 @@ void handle_signal(int signal) {
         flagCreatChildren = false; //prevent the creation of more children proccesses
         
         //terminate all existenting children
-        terminateChildren();
+        //terminateChildren();
         
         //read availa
         pipeToFile(pipefd, 0, 1);
@@ -244,14 +382,18 @@ int main(int argc, char *argv[], char** envp){
         pexit("Invalid number of batches");
     }
     
-    batch_size = (n_requests + batch_size - 1) / batch_size;  // Round up division
+    batch_size = (n_requests + n_batches - 1) / n_batches;  // Round up division
     
-    //open File
-    int/**/ fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if(n_batches > n_requests){
+        pexit("Batches should be < than requests");
+    }
+    
+    //open File - we open the file here onluy if is the child to write to it
+    /*int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     
     if(fd == -1){
         pexit("file opening/creation error");
-    }
+    }*/
     
     //The pipe should be opened by the parent process; otherwise, the children wouldn't have this channel in this descriptor
     if (pipe(pipefd) == -1) {
@@ -369,7 +511,7 @@ int main(int argc, char *argv[], char** envp){
             }
         }
     }
-    for(int i = 0; i < n_requests / n_batches; i++){ //i < requests/batch
+    for(int i = 0; i < n_requests / batch_size; i++){ //i < requests/batch
         waitpid(pid, NULL, 0);
     }
     //wait children to end
@@ -401,11 +543,14 @@ int main(int argc, char *argv[], char** envp){
      close(pipefd[0]);*/
     
     
-    pipeToFile(pipefd, fd, 1);
+    pipeToFile(pipefd, fileName, 1);
     close(sockfd);
-    close(fd);
-    //struct Node* head = NULL;
-    //readFromFile(fileName, &head);
+    //Linked list problem:
+    struct Node* head = NULL;
+    readFromFile(fileName, &head);
+    
+
+    //printLinkedListElements(&head);
     
     //Parent writing to the file
     /*if(write(fd, buf, strlen(buf)) < 0){
@@ -417,6 +562,8 @@ int main(int argc, char *argv[], char** envp){
     TIMER_STOP();
     
     fprintf(stderr, "%f secs\n", time_delta);
+    
+    //close(fd);
 }
 
 
