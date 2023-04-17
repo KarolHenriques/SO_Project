@@ -32,11 +32,11 @@
 gettimeofday(&tv2, NULL); \
 timersub(&tv2, &tv1, &tv); \
 time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
-
 #define IP_MAX_LENGTH 16
 #define URL_MAX_LENGTH 40
 #define REQUEST_MAX 1000000
 #define RESPONSE_SIZE 4
+#define MAX_PORT_NUMBER 65535
 
 //Global variables
 
@@ -147,34 +147,10 @@ void printLinkedList(struct Node* head) {
     }
 }
 
-/*void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
- close(pipefd[1]);
- //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
- int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
- if (fd == -1) {
- pexit("Unable to open file");
- }
- 
- char buf[BUFSIZE];
- ssize_t count = read(pipefd[0], buf, sizeof(buf));
- 
- if (count == -1) {
- pexit("read from pipe");
- }
- 
- printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
- 
- if(writeIt){
- if(write(fd, buf, strlen(buf)) < 0){
- pexit("writing to shared file error (parent)");
- }
- }
- close(pipefd[0]);
- close(fd);
- }*/
 void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     close(pipefd[1]);
-    
+    //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
+
     int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1) {
         pexit("Unable to open file");
@@ -349,7 +325,7 @@ void handle_signal(int signal) {
 
 int main(int argc, char *argv[], char** envp){
     
-    int i, /*sockfd,*/ batch_size, n_batches, j, bytes_received, total_bytes_received;
+    int i, /*sockfd,*/ batch_size, n_batches, n_port, j, bytes_received, total_bytes_received;
     long n_requests;
     char buffer[BUFSIZE], request[BUFSIZE], response_code[RESPONSE_SIZE];
     static struct sockaddr_in serv_addr;
@@ -364,6 +340,18 @@ int main(int argc, char *argv[], char** envp){
         printf("Usage: ./client <SERVER IP ADDRESS> <LISTENING PORT> <N REQUESTS> <BATCH SIZE>\n");
         printf("Example: ./client 127.0.0.1 8141 10 2\n");
         pexit("Wrong request input");
+    }
+    
+    //Check port number valid
+    char *port;
+    n_port = strtol(argv[2], &port, 10); //10 stands for the decimal system
+    
+    if (*port != '\0') {
+        pexit("Invalid port");
+    }
+    
+    if(n_port > MAX_PORT_NUMBER || n_port < 0){
+        pexit("Invalid port");
     }
     
     //Get the number of requests
