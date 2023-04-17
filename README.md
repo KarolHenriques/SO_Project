@@ -18,7 +18,7 @@ Example usage:
 
 ./client 127.0.0.1 8080 10 2
 
-The above command will send 10 requests in 2 batches to the server at IP address 127.0.0.1, port number 8080.
+The above command will send 10 requests in batches of 2 to the server at IP address 127.0.0.1, port number 8080.
 
 ## Code Structure
 
