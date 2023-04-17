@@ -210,72 +210,70 @@ int main(int argc, char **argv, char** envp){
     for(hit=1; ;hit++) {
         length = sizeof(cli_addr);
         /* block waiting for clients */
-        /*socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-         if (socketfd<0)
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        /*if (socketfd<0)
          logger(ERROR,"system call","accept",0);*/
         /*else
          web(socketfd,hit);*/
+        //(void)close(listenfd);
         
         //Create a child to handle each request
-        //        if ((pid = fork()) < 0) {
-        //            logger(ERROR,"system call","fork",0);
-        //        } else {
-        //            if (pid == 0) {  /* child */
-        //                (void)close(listenfd);
-        //        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-        //        if (socketfd<0)
-        //            logger(ERROR,"system call","accept",0);
-        
-        //                web(socketfd,hit); /* process the request */
-        //            } else { /* parent */
-        //                (void)close(socketfd);
-        //            }
-        //        }
+        if ((pid = fork()) < 0) {
+            logger(ERROR,"system call","fork",0);
+        } else {
+            if (pid == 0) {  /* child */
+                web(socketfd,hit); /* process the request */
+                if (socketfd<0)
+                    logger(ERROR,"system call","accept",0);
+            } else { /* parent */
+                (void)close(socketfd);
+            }
+        }
         /*Pool of process*/
-        while (pool_size < MAX_POOL_SIZE) {
-            pid = fork();
-            if (pid == 0) {
-                // Child process
-                printf("New child!\n");
-                while (1) {
-                    // Wait for a client connection and handle the request
-                    socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-                    if (socketfd<0)
-                        logger(ERROR,"system call","accept",0);
-                    web(socketfd,hit);
-                }
-                exit(0);
-            } else if (pid > 0) {
-                // Parent process
-                pool_size++;
-            } else {
-                // Error occurred
-                printf("Failed to create child process\n");
-                exit(1);
-            }
-        }
-        // Parent process
-        while (1) {
-            // Wait for a child process to become available
-            pid_t child_pid = waitpid(-1, &status, WNOHANG);
-            if (child_pid > 0) {
-                printf("Done, dad!\n");
-                // Child process has exited, respawn it
-                pid = fork();
-                if (pid == 0) {
-                    // Child process
-                    while (1) {
-                        // Wait for a client connection and handle the request
-                        web(socketfd,hit);
-                    }
-                    exit(0);
-                } else if (pid < 0) {
-                    // Error occurred
-                    printf("Failed to respawn child process\n");
-                }
-            }
-        }
-        return 0;
+        /*while (pool_size < MAX_POOL_SIZE) {
+         pid = fork();
+         if (pid == 0) {
+         // Child process
+         printf("New child!\n");
+         while (1) {
+         // Wait for a client connection and handle the request
+         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+         if (socketfd<0)
+         logger(ERROR,"system call","accept",0);
+         web(socketfd,hit);
+         }
+         exit(0);
+         } else if (pid > 0) {
+         // Parent process
+         pool_size++;
+         } else {
+         // Error occurred
+         printf("Failed to create child process\n");
+         exit(1);
+         }
+         }
+         // Parent process
+         while (1) {
+         // Wait for a child process to become available
+         pid_t child_pid = waitpid(-1, &status, WNOHANG);
+         if (child_pid > 0) {
+         printf("Done, dad!\n");
+         // Child process has exited, respawn it
+         pid = fork();
+         if (pid == 0) {
+         // Child process
+         while (1) {
+         // Wait for a client connection and handle the request
+         web(socketfd,hit);
+         }
+         exit(0);
+         } else if (pid < 0) {
+         // Error occurred
+         printf("Failed to respawn child process\n");
+         }
+         }
+         }
+         return 0;*/
     }
 }
 
