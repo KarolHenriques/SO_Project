@@ -1,9 +1,11 @@
 //
 //  SO_Project_1version.c
 //
-//
+//  Adapted by Pedro Sobral on 11/02/13.
+//  Credits to Nigel Griffiths
 //  Created by Karol Henriques on 04/04/2023.
 //
+//  Adapted by Karol Henriques on 17/04/23.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +36,7 @@ timersub(&tv2, &tv1, &tv); \
 time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 #define IP_MAX_LENGTH 16
 #define URL_MAX_LENGTH 40
-#define REQUEST_MAX 1000000
+#define REQUEST_MAX 10000
 #define RESPONSE_SIZE 4
 #define MAX_PORT_NUMBER 65535
 
@@ -42,7 +44,6 @@ time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 
 int pipefd[2];
 int sockfd;
-volatile bool flagCreatChildren = true;
 long* childrenPids;
 char* fileName = "sharedTextFile.txt";
 struct timeval tv1, tv2, tv;
@@ -80,12 +81,15 @@ ssize_t readn(int fd, void *buf, size_t n) {
     
     while (nleft > 0) {
         if ((nread = read(fd, ptr, nleft)) < 0) {
-            if (errno == EINTR)  /* Interrupted by signal */
+            if (errno == EINTR){  /* Interrupted by signal */
                 nread = 0;      /* and call read() again */
-            else
+            }
+            else{
                 return -1;      /* Error */
-        } else if (nread == 0)
+            }
+        } else if (nread == 0){
             break;              /* EOF */
+        }
         
         nleft -= nread;
         ptr += nread;
@@ -101,10 +105,12 @@ ssize_t writen(int fd, const void *buf, size_t n) {
     
     while (nleft > 0) {
         if ((nwritten = write(fd, ptr, nleft)) <= 0) {
-            if (errno == EINTR)  /* Interrupted by signal */
+            if (errno == EINTR){  /* Interrupted by signal */
                 nwritten = 0;   /* and call write() again */
-            else
+            }
+            else{
                 return -1;      /* Error */
+            }
         }
         
         nleft -= nwritten;
@@ -142,7 +148,7 @@ void printLinkedList(struct Node* head) {
     struct Node* current = head;
     
     while (current != NULL) {
-        printf("pid: %d, bsn: %d, rsn: %d, rc: %d, t: %.2f\n", current->record.pid, current->record.bsn, current->record.rsn, current->record.rc, current->record.t);
+        printf("pid: %d, bsn: %d, rsn: %d, rc: %d, t: %f\n", current->record.pid, current->record.bsn, current->record.rsn, current->record.rc, current->record.t);
         current = current->next;
     }
 }
@@ -150,7 +156,7 @@ void printLinkedList(struct Node* head) {
 void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     close(pipefd[1]);
     //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
-
+    
     int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1) {
         pexit("Unable to open file");
@@ -205,7 +211,7 @@ void readFromFile(char* fileName, struct Node** head) {
     int count = 0;
     char c;
     
-    while ((n = read(fd, &c, 1)) > 0) {
+    while ((n = readn(fd, &c, 1)) > 0) {
         if (c == '\n') {
             buf[len] = '\0';
             record = saveToStruct(buf);
@@ -302,7 +308,6 @@ void handle_signal(int signal) {
         printf("Ending the child processes\n");
         
         /*Code to clean and close everything*/
-        flagCreatChildren = false; //prevent the creation of more children proccesses
         
         //terminate all existenting children
         terminateChildren();
@@ -329,7 +334,7 @@ int main(int argc, char *argv[], char** envp){
     long n_requests;
     char buffer[BUFSIZE], request[BUFSIZE], response_code[RESPONSE_SIZE];
     static struct sockaddr_in serv_addr;
-
+    
     //child variables
     pid_t pid;
     
@@ -362,9 +367,6 @@ int main(int argc, char *argv[], char** envp){
         pexit("Invalid number of requests");
     }
     
-    //Alloc memory to the childrenPids
-    childrenPids = (long*)malloc(n_requests * sizeof(long));
-    
     if(n_requests > REQUEST_MAX){
         pexit("Max number of requests exceeded");
     }
@@ -376,11 +378,19 @@ int main(int argc, char *argv[], char** envp){
         pexit("Invalid number of batches");
     }
     
-    batch_size = (n_requests + n_batches - 1) / n_batches;  // Round up division
+    if(n_requests % n_batches != 0){
+        batch_size = (n_requests + n_batches - 1) / n_batches;  // Round up division
+    }
     
+    batch_size = n_requests / n_batches;
     if(n_batches > n_requests){
         pexit("Batches should be < than requests");
     }
+    
+    //Alloc memory to the childrenPids
+    childrenPids = (long*)malloc(n_batches * sizeof(long));
+    
+    /********************************************If children are writing to the shared file**********************************************************************************/
     
     //open File - we open the file here onluy if is the child to write to it
     /*int fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -388,6 +398,7 @@ int main(int argc, char *argv[], char** envp){
      if(fd == -1){
      pexit("file opening/creation error");
      }*/
+    /****************************************************************************************************************************************************************************/
     
     //The pipe should be opened by the parent process; otherwise, the children wouldn't have this channel in this descriptor
     if (pipe(pipefd) == -1) {
@@ -397,14 +408,14 @@ int main(int argc, char *argv[], char** envp){
     
     //Start to count the total time of the code
     TIMER_START();
-    for (i = 0; i < n_batches && flagCreatChildren; i++) {
-        for (j = 0; j < batch_size && (i * batch_size + j) < n_requests && flagCreatChildren; j++) {
-            pid = fork();
-            if (pid == -1) {
+    for (i = 0; i < batch_size; i++) {
+        for (j = 0; j < n_batches && (i * n_batches + j) < n_requests; j++) {
+            childrenPids[j] = fork();
+            if (childrenPids[j] == -1) {
                 pexit("fork");
-            } else if(pid == 0){
+            } else if(childrenPids[j] == 0){
                 //close the pipe channel that won't be used (child only writes to the pipe)
-                close(pipefd[0]);
+                close(pipefd[STDIN_FILENO]);
                 
                 //start count the time
                 TIMER_START();
@@ -420,7 +431,6 @@ int main(int argc, char *argv[], char** envp){
                 if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
                     pexit("connect() failed");
                 }
-                
                 printf("client connected to IP = %s PORT = %s\n", argv[1], argv[2]);
                 //Get url
                 char ip_addr[IP_MAX_LENGTH];
@@ -477,56 +487,48 @@ int main(int argc, char *argv[], char** envp){
                 
                 char toFile[MAX_LINE_SIZE];
                 int pid_ = getpid();
-                sprintf(toFile, "%d;%d;%d;%s;%.2f\n", pid_, j, i, response_code, time_delta);
+                sprintf(toFile, "%d;%d;%d;%s;%f\n", pid_, j, i, response_code, time_delta);
                 
+                /********************************************If children are writing to the shared file**********************************************************************************/
                 //child writing to the file
                 /*if(write(fd, toFile, strlen(toFile)) < 0){
                  pexit("writing to shared file error (child %d)", getpid());
                  }*/
+                /****************************************************************************************************************************************************************************/
+                
                 if(write(STDOUT_FILENO, toFile, strlen(toFile)) < 0){
                     pexit("writing to STDOUT_FILENO error");
                 }
                 close(sockfd);
                 
-                if(write(pipefd[1], toFile, strlen(toFile)) < 0){
+                if(write(pipefd[STDOUT_FILENO], toFile, strlen(toFile)) < 0){
                     pexit("pipe writing");
                 }
-                close(pipefd[1]);
+                close(pipefd[STDOUT_FILENO]);
                 exit(EXIT_SUCCESS);
             }
             else{
                 //parent code - should wait each child from each batch finishes
                 
-                //Add pids in a int array to end all children if necessary
-                childrenPids[i] = pid;
-                for(int i = 0; i < batch_size; i++){
-                    waitpid(pid, NULL, 0);
-                }
             }
         }
-        //close(fd); //if is the children that writes to the file
-    }
-    for(int i = 0; i < n_requests / batch_size; i++){ //i < requests/batch
-        waitpid(pid, NULL, 0);
-    }
-    //wait children to end
-    pid_t wpid;
-    int status;
-    while ((wpid = wait(&status)) > 0) {
-        if (WIFEXITED(status)) {
-            printf("Child exited with status %d\n", WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-            printf("Child terminated by signal %d\n", WTERMSIG(status));
+        printf("Parent code waiting \n");
+        for(int i = 0; i < batch_size; i++){
+            waitpid(childrenPids[i], NULL, 0);
         }
-    }/**/
-    
+        
+        /********************************************If children are writing to the shared file**********************************************************************************/
+        //close(fd);
+        /****************************************************************************************************************************************************************************/
+        
+    }
     //time for all processes
     TIMER_STOP();
     
     pipeToFile(pipefd, fileName, true);
     close(sockfd);
     
-    //Linked list problem:
+    //Linked list:
     struct Node* head = NULL;
     readFromFile(fileName, &head);
     
