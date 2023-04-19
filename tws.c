@@ -22,14 +22,14 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
-#define BUFSIZE 8096
-#define ERROR   42
-#define LOG 44
-#define FORBIDDEN   403
-#define NOTFOUND    404
-#define VERSION 1
-#define MAX_POOL_SIZE 10
-#define SHM_SIZE 1024
+#define BUFSIZE         8096
+#define ERROR           42
+#define LOG             44
+#define FORBIDDEN       403
+#define NOTFOUND        404
+#define VERSION         1
+#define MAX_POOL_SIZE   10
+#define SHM_SIZE        1024
 
 /* Shared memory to pass the request to a new child if the one who's handling the request ends abruptly*/
 
@@ -235,7 +235,7 @@ int main(int argc, char **argv, char** envp){
     logger(LOG,"tws starting",argv[1],getpid());
     
     /* setup the network socket */
-    if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
+    /*if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
         logger(ERROR, "system call","socket",0);
     port = atoi(argv[1]);
     if(port < 0 || port >60000)
@@ -248,18 +248,19 @@ int main(int argc, char **argv, char** envp){
     if( listen(listenfd,64) <0)
         logger(ERROR,"system call","listen",0);
     
-    //for(hit=1; ;hit++) {
-    length = sizeof(cli_addr);
-    /* block waiting for clients */
-    //socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-    /*if (socketfd<0)
-     logger(ERROR,"system call","accept",0);*/
-    /*else
-     web(socketfd,hit);*/
-    //(void)close(listenfd);
+    for(hit=1; ;hit++) {
+        length = sizeof(cli_addr);
+        //Block waiting for clients
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        if (socketfd<0)
+            logger(ERROR,"system call","accept",0);
+        else
+            web(socketfd,hit);
+    }
+    (void)close(listenfd);*/
     
     /********************************Child to handle each request*********************************/
-    while(1){
+    /* while(1){
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if(socketfd < 0){
             logger(ERROR,"system call","accept",0);
@@ -277,7 +278,7 @@ int main(int argc, char **argv, char** envp){
             
         }
         close(socketfd);
-    }
+    }*/
     /********************************Pool of process***************************************/
     /*printf("I'm here!\n");
      pid_t pidArray[MAX_POOL_SIZE];
@@ -305,6 +306,7 @@ int main(int argc, char **argv, char** envp){
      while(1){
      wait(NULL); //wait for any child to finish
      num_children--;
+     printf("We got here because it was needed\n");
      
      // fork new child process if necessary
      if (num_children < MAX_POOL_SIZE){
@@ -316,7 +318,9 @@ int main(int argc, char **argv, char** envp){
      }
      else if (pidArray[num_children] == 0) {//child process
      while (1) {
+     //for(int i = 0;  i < num_children; i++){
      socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+     //}
      if(socketfd < 0){
      close(socketfd);
      logger(ERROR,"system call", "accept", 0);
@@ -325,14 +329,12 @@ int main(int argc, char **argv, char** envp){
      web(socketfd,hit);
      close(socketfd);
      }
+     
      }
      num_children++;
      }
      return 0;
      }*/
-    
-    
-    
     
     // }
 }
