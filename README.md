@@ -27,6 +27,8 @@ The TIMER_START() and TIMER_STOP() functions are used to measure the time taken 
 
 The handle_signal() function is used to handle the SIGPIPE and SIGINT signals.
 
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+
 # Tiny Web Server
 
 This is a simple implementation of a web server that handles only GET requests, based on the HTTP 1.1 specification. It serves static files and logs all requests and errors to a file called tws.log.
