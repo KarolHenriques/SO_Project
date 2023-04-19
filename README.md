@@ -3,6 +3,8 @@
 # Client's code
 This code is a client that sends HTTP GET requests to a server, given a server IP address, a port number, and the number of requests. The client creates multiple child processes to handle the requests, and each child sends one request to the server.
 
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+
 ## Getting Started
 
 To compile the client's code, use the following command: gcc client.c -o client
@@ -25,9 +27,11 @@ The TIMER_START() and TIMER_STOP() functions are used to measure the time taken 
 
 The handle_signal() function is used to handle the SIGPIPE and SIGINT signals.
 
-# Server's code
+# Tiny Web Server
 
-The server creates a child to handle the client's requests and, as an improvement of this implementation, creates a pool of processes to handle the client's requests.
+This is a simple implementation of a web server that handles only GET requests, based on the HTTP 1.1 specification. It serves static files and logs all requests and errors to a file called tws.log.
+
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
 
 ## Getting Started
 
@@ -40,11 +44,19 @@ The above command will launch the server in the 8080 port and it will start list
 
 ## Code Structure
 
-The main code is responsible for listening to the requests of the clients and keeping a pool of child processes available to handle these requests.
+This is a C program implementing a simple static file web server that serves files in response to HTTP GET requests. It includes functions for handling error messages, logging requests and responses to disk, and dealing with signals for child processes that end abruptly. The program reads incoming HTTP requests and sends responses back to the client. It also includes a list of file extensions and their corresponding MIME types for serving different types of files.
 
-The code uses the fork() system call to create child processes.
+- Only handles GET requests
 
-The handle_signal() function is used to handle the SIGCHLD signal.
+- Serves static files
+
+- Logs all requests and errors to tws.log
+
+- Handles SIGCHLD signal to restart child processes that terminate abruptly
+
+## Limitations
+
+This server is not intended to be used in production environments, as it lacks many important features of a real web server, such as support for POST requests, dynamic content generation, and security features. It is meant to be used for educational purposes and as a starting point for building more advanced web servers.
 
 ## License
 
