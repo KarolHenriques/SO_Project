@@ -3,6 +3,8 @@
 # Client's code
 This code is a client that sends HTTP GET requests to a server, given a server IP address, a port number, and the number of requests. The client creates multiple child processes to handle the requests, and each child sends one request to the server.
 
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+
 ## Getting Started
 
 To compile the client's code, use the following command: gcc client.c -o client
@@ -41,6 +43,8 @@ Example usage:
 The above command will launch the server in the 8080 port and it will start listening to the client's requests.
 
 ## Code Structure
+
+This is a C program implementing a simple static file web server that serves files in response to HTTP GET requests. It includes functions for handling error messages, logging requests and responses to disk, and dealing with signals for child processes that end abruptly. The program reads incoming HTTP requests and sends responses back to the client. It also includes a list of file extensions and their corresponding MIME types for serving different types of files.
 
 - Only handles GET requests
 
