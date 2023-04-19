@@ -258,67 +258,81 @@ int main(int argc, char **argv, char** envp){
      web(socketfd,hit);*/
     //(void)close(listenfd);
     
-    //Create a child to handle each request
-    //        if ((pid = fork()) < 0) {
-    //            logger(ERROR,"system call","fork",0);
-    //        } else {
-    //            if (pid == 0) {  /* child */
-    //                web(socketfd,hit); /* process the request */
-    //                if (socketfd<0)
-    //                    logger(ERROR,"system call","accept",0);
-    //            } else { /* parent */
-    //                (void)close(socketfd);
-    //            }
-    //        }
-    /*Pool of process*/
-    printf("I'm here!\n");
-    pid_t pidArray[MAX_POOL_SIZE];
-    int num_children = 0;
-
-    for (int i = 0; i < MAX_POOL_SIZE; i++) {
-        pidArray[i] = fork();
-        if (pidArray[i] < 0) {
-            logger(ERROR,"fork failed","fork",0);
-        }else if (pidArray[i] == 0) {//child process
-            while (1) {
-                socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-                if(socketfd < 0){
-                    logger(ERROR,"system call","accept",0);
-                    continue;
-                }
-                web(socketfd,hit);
-                close(socketfd);
-            }
-            exit(EXIT_SUCCESS);
-        }
-    }
-    // parent process
+    /********************************Child to handle each request*********************************/
     while(1){
-        wait(NULL); //wait for any child to finish
-        num_children--;
-        
-        // fork new child process if necessary
-        if (num_children < MAX_POOL_SIZE){
-            pidArray[num_children] = fork();
-            if (pidArray[num_children] < 0) {
-                logger(ERROR,"fork failed","fork",0);
-                continue;
-            }
-            else if (pidArray[num_children] == 0) {//child process
-                while (1) {
-                    socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-                    if(socketfd < 0){
-                        logger(ERROR,"system call","accept",0);
-                        continue;
-                    }
-                    web(socketfd,hit);
-                    close(socketfd);
-                }
-            }
-            num_children++;
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        if(socketfd < 0){
+            logger(ERROR,"system call","accept",0);
+            continue;
         }
-        return 0;
+        // fork new child process to handle client request
+        pid = fork();
+        if (pid < 0) {
+            logger(ERROR,"fork failed","fork",0);
+            close(socketfd);
+            continue;
+        }else if(pid == 0){//child process to handle the client's request
+            web(socketfd,hit);
+            exit(EXIT_SUCCESS);
+            
+        }
+        close(socketfd);
     }
+    /********************************Pool of process***************************************/
+    /*printf("I'm here!\n");
+     pid_t pidArray[MAX_POOL_SIZE];
+     int num_children = 0;
+     
+     for (int i = 0; i < MAX_POOL_SIZE; i++) {
+     pidArray[i] = fork();
+     if (pidArray[i] < 0) {
+     logger(ERROR,"fork failed","fork",0);
+     }else if (pidArray[i] == 0) {//child process
+     while (1) {
+     socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+     if(socketfd < 0){
+     close(socketfd);
+     logger(ERROR,"system call","accept",0);
+     continue;
+     }
+     web(socketfd,hit);
+     close(socketfd);
+     }
+     exit(EXIT_SUCCESS);
+     }
+     }
+     // parent process
+     while(1){
+     wait(NULL); //wait for any child to finish
+     num_children--;
+     
+     // fork new child process if necessary
+     if (num_children < MAX_POOL_SIZE){
+     pidArray[num_children] = fork();
+     if (pidArray[num_children] < 0) {
+     logger(ERROR,"fork failed","fork",0);
+     close(socketfd);
+     continue;
+     }
+     else if (pidArray[num_children] == 0) {//child process
+     while (1) {
+     socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+     if(socketfd < 0){
+     close(socketfd);
+     logger(ERROR,"system call", "accept", 0);
+     continue;
+     }
+     web(socketfd,hit);
+     close(socketfd);
+     }
+     }
+     num_children++;
+     }
+     return 0;
+     }*/
+    
+    
+    
     
     // }
 }
