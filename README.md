@@ -63,11 +63,11 @@ The code is divided into three sections:
 
 The first section uses a sequential approach, which means that the server handles requests one by one. This approach is not suitable for handling multiple client requests simultaneously as it can cause the server to become unresponsive or slow. 
 
-###2. Forking Child Processes
+### 2. Forking Child Processes
 
 The second section uses the forking method to handle client requests. When a client request arrives, a child process is created to handle it while the parent process continues to listen for new incoming requests. This method allows the server to handle multiple requests simultaneously. However, creating a new child process for each request can be resource-intensive, and it may result in the server becoming slow or unresponsive if there are too many requests.
 
-###3. A pool of Child Processes
+### 3. A pool of Child Processes
 
 The third section uses a pool of child processes to handle client requests. When a request arrives, the parent process assigns it to an available child process in the pool. The child process handles the request, and when it's done, it notifies the parent process, which assigns the next available request to the child process. This method is more efficient than the forking method as it uses a fixed number of child processes, reducing the overhead of creating new processes for each request.
 
