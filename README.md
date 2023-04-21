@@ -59,7 +59,7 @@ The above command will launch the server in the 8080 port and it will start list
 
 The code is divided into three sections:
 
-###1. Sequential
+### 1. Sequential
 
 The first section uses a sequential approach, which means that the server handles requests one by one. This approach is not suitable for handling multiple client requests simultaneously as it can cause the server to become unresponsive or slow. 
 
