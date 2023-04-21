@@ -307,7 +307,7 @@ int main(int argc, char **argv, char** envp){
         else if(pid_Pool == 0){
             // child process
             //break;
-            bool request_available;
+            bool request_available = false;
             while(1){
                 //Wait for a request to be assigned by the parent process
                 printf("I'm here!");
@@ -425,6 +425,30 @@ int main(int argc, char **argv, char** envp){
         }
     }
 }
+
+void sigchld_handler(int signum) {
+    int status;
+    pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) { // loop until no child is waiting to be reaped
+        if (WIFEXITED(status)) { // child process terminated normally
+            int i;
+            for (i = 0; i < MAX_POOL_SIZE; i++) { // check if the child was in the pool
+                if (((int*)shmaddr)[i] == pid) {
+                    ((int*)shmaddr)[i] = fork(); // replace the terminated child with a new child process
+                    //Check fork
+                    break;
+                    }
+                }
+            }
+        
+        else{// child process did not terminate normally
+            ;
+        }
+    }
+}
+    /* When a child process receives a SIGCHLD, it means that the child process has terminated, and the parent process is notified about it. The parent process can then choose to do something in response to the child process termination, such as creating a new child process to handle pending requests.
+     
+     However, it's important to note that once a child process is terminated, all the resources associated with that process, including any pending requests or tasks, are lost. So if the child process was handling a request when it received a SIGCHLD and terminated, the parent process would not be able to create a new child process to continue handling that same request.*/
 
 
 
