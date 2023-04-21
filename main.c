@@ -5,7 +5,7 @@
 //  Credits to Nigel Griffiths
 //  Created by Karol Henriques on 04/04/2023.
 //
-//  Adapted by Karol Henriques on 17/04/23.
+//
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,8 +23,6 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <signal.h>
-
-//#include "aux_functions_SO_Project.h"
 
 #define SOCK_PATH "/tmp/socket"
 #define MAX_LINE_SIZE 1024
@@ -237,13 +235,16 @@ void readFromFile(char* fileName, struct Node** head) {
 void terminateChildren(){
     int status;
     for(long i = 0; i < sizeof(childrenPids); i++){
-        kill(SIGTERM, childrenPids[i]);
-        waitpid(childrenPids[i], &status, 0);
-        if (WIFSIGNALED(status)) {
-            //printf("Child %ld terminated by signal %d\n", childrenPids[i], WTERMSIG(status));
-        } else {
-            //printf("Child %ld terminated with status %d\n", childrenPids[i], WEXITSTATUS(status));
-            kill(SIGKILL, childrenPids[i]);
+        if(childrenPids[i] != 0){
+            kill(SIGTERM, childrenPids[i]);
+            waitpid(childrenPids[i], &status, 0);
+            if (WIFSIGNALED(status)) {
+                /*printf("Child %ld terminated by signal %d\n", childrenPids[i], WTERMSIG(status));*/
+                continue;
+            } else {
+                /*printf("Child %ld terminated with status %d\n", childrenPids[i], WEXITSTATUS(status));*/
+                kill(SIGKILL, childrenPids[i]);
+            }
         }
     }
 }
@@ -312,7 +313,7 @@ void handle_signal(int signal) {
         //terminate all existenting children
         terminateChildren();
         close(sockfd);
-        
+    }
         //read available data
         pipeToFile(pipefd, fileName, true);
         
@@ -325,7 +326,7 @@ void handle_signal(int signal) {
         
         DataAnalysisReport (head, time_delta);
         exit(EXIT_SUCCESS);
-    }
+   
 }
 
 int main(int argc, char *argv[], char** envp){
@@ -507,15 +508,15 @@ int main(int argc, char *argv[], char** envp){
                 close(pipefd[STDOUT_FILENO]);
                 exit(EXIT_SUCCESS);
             }
-            else{
+            /*else{
                 //parent code - should wait each child from each batch finishes
                 
-            }
+            }*/
         }
         printf("Parent code waiting \n");
         for(int i = 0; i < batch_size; i++){
             waitpid(childrenPids[i], NULL, 0);
-        }
+        }memset(childrenPids, 0, n_batches * sizeof(long));
         
         /********************************************If children are writing to the shared file**********************************************************************************/
         //close(fd);
