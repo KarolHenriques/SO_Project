@@ -1,20 +1,27 @@
 # SO_Project README
 
 # Client's code
-This code is a client that sends HTTP GET requests to a server, given a server IP address, a port number, and the number of requests. The client creates multiple child processes to handle the requests, and each child sends one request to the server.
+This code is a client that sends HTTP GET requests to a server, given a server IP address, a port number, and the number of requests. The client creates multiple child processes to handle the requests, and each child sends one request to the server. The code is written in C.
 
-The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 17/04/23.
 
 ## Getting Started
 
 To compile the client's code, use the following command: gcc client.c -o client
+
 The program accepts four arguments:
-Server IP Address: The IP address of the server to which the client will send the requests.
-Listening Port: The port number of the server to which the client will connect.
-Number of Requests: The total number of requests that the client will send to the server.
-Batch Size: The number of requests that each child process will send.
+
+- Server IP Address: The IP address of the server to which the client will send the requests.
+
+- Listening Port: The port number of the server to which the client will connect.
+
+- Number of Requests: The total number of requests that the client will send to the server.
+
+- Batch Size: The number of requests that each child process will send.
+
 Example usage:
 ./client 127.0.0.1 8080 10 2
+
 The above command will send 10 requests in batches of 2 to the server at IP address 127.0.0.1, port number 8080.
 
 ## Code Structure
@@ -27,13 +34,17 @@ The TIMER_START() and TIMER_STOP() functions are used to measure the time taken 
 
 The handle_signal() function is used to handle the SIGPIPE and SIGINT signals.
 
-The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 17/04/23.
 
 # Tiny Web Server
 
 This is a simple implementation of a web server that handles only GET requests, based on the HTTP 1.1 specification. It serves static files and logs all requests and errors to a file called tws.log.
 
-The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code, and was further adapted by Karol Henriques on 17/04/23.
+This server can handle multiple client requests using different methods: sequential, forking child processes, or creating a pool of child processes.
+
+The code is written in C and the web() function is responsible for handling the requests. The server listens for incoming requests on a socket and then uses the accept() function to accept the connection request. The incoming socket is passed to the web() function to handle the client's request. After the request is handled, the socket is closed and the server goes back to listening for incoming requests.
+
+The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 17/04/23.
 
 ## Getting Started
 
@@ -46,15 +57,19 @@ The above command will launch the server in the 8080 port and it will start list
 
 ## Code Structure
 
-This is a C program implementing a simple static file web server that serves files in response to HTTP GET requests. It includes functions for handling error messages, logging requests and responses to disk, and dealing with signals for child processes that end abruptly. The program reads incoming HTTP requests and sends responses back to the client. It also includes a list of file extensions and their corresponding MIME types for serving different types of files.
+The code is divided into three sections:
 
-- Only handles GET requests
+###1. Sequential
 
-- Serves static files
+The first section uses a sequential approach, which means that the server handles requests one by one. This approach is not suitable for handling multiple client requests simultaneously as it can cause the server to become unresponsive or slow. 
 
-- Logs all requests and errors to tws.log
+###2. Forking Child Processes
 
-- Handles SIGCHLD signal to restart child processes that terminate abruptly
+The second section uses the forking method to handle client requests. When a client request arrives, a child process is created to handle it while the parent process continues to listen for new incoming requests. This method allows the server to handle multiple requests simultaneously. However, creating a new child process for each request can be resource-intensive, and it may result in the server becoming slow or unresponsive if there are too many requests.
+
+###3. A pool of Child Processes
+
+The third section uses a pool of child processes to handle client requests. When a request arrives, the parent process assigns it to an available child process in the pool. The child process handles the request, and when it's done, it notifies the parent process, which assigns the next available request to the child process. This method is more efficient than the forking method as it uses a fixed number of child processes, reducing the overhead of creating new processes for each request.
 
 ## Limitations
 
@@ -63,5 +78,4 @@ This server is not intended to be used in production environments, as it lacks m
 ## License
 
 This code is licensed under the UFP license.
-
 
