@@ -313,14 +313,15 @@ int main(int argc, char **argv, char** envp){
         }
     }
     
-    printf("num_children: %d\n", num_children);
     //Parent process
+    printf("num_children: %d\n", num_children);
+    
+    if(listen(listenfd, 64) < 0){
+        logger(ERROR,"system call","listen", 0);
+        continue;
+    }
     while(1){
         printf("Parent got here\n");
-        if(listen(listenfd, 64) < 0){
-            logger(ERROR,"system call","listen", 0);
-            continue;
-        }
         //parent process accepts the request and assign to a child
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if (socketfd < 0) {
