@@ -2,10 +2,10 @@
 //  tws.c
 //
 //
-//  Adapted by Pedro Sobral on 11/02/13.
+//  Adapted by Pedro Sobral on 02-22-13.
 //  Credits to Nigel Griffiths
 //
-//  Adapted by Karol Henriques on 17/04/23.
+//  Adapted by Karol Henriques on 04-22-23.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,7 +56,8 @@ struct {
     {"html","text/html" },
     {0,0} };
 
-void sigchld_handler(int signum);
+
+void sigchld_handler_k(int signum);
 
 /* Deals with error messages and logs everything to disk */
 
@@ -133,7 +134,7 @@ int web(int fd, int hit){
     for(i=0;extensions[i].ext != 0;i++) {
         len = strlen(extensions[i].ext);
         if(!strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
-            fstr =extensions[i].filetype;
+            fstr = extensions[i].filetype;
             break;
         }
     }
@@ -172,7 +173,8 @@ int main(int argc, char **argv, char** envp){
     static struct sockaddr_in cli_addr; /* static = initialised to zeros */
     static struct sockaddr_in serv_addr; /* static = initialised to zeros */
     
-    signal(SIGCHLD, sigchld_handler);
+    /****************************************Uncomente for pool of processes******************************************/
+    //signal(SIGCHLD, sigchld_handler_k);
     
     if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
         (void)printf("\n\nhint: ./tws Port-Number Top-Directory\t\tversion %d\n\n"
@@ -215,7 +217,7 @@ int main(int argc, char **argv, char** envp){
     if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
         logger(ERROR,"system call","bind",0);
     /********************************Sequencial request handling**I*****************************************************************/
-    /*if(listen(listenfd,64) <0)
+    if(listen(listenfd,64) <0)
         logger(ERROR,"system call","listen",0);
     
     for(hit=1; ;hit++) {
@@ -228,14 +230,14 @@ int main(int argc, char **argv, char** envp){
             web(socketfd,hit);
     }
     (void)close(listenfd);
-}*/
+}/**/
     /********************************Child to handle each request*********************************/
     /* length = sizeof(cli_addr);
     
     if(listen(listenfd,64) <0){
         logger(ERROR,"system call","listen",0);
     }
-    
+    int hit = 1;
     while(1){
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if(socketfd < 0){
@@ -248,7 +250,7 @@ int main(int argc, char **argv, char** envp){
             logger(ERROR,"fork failed","fork",0);
         }
         if(pid == 0){//child process to handle the client's request
-            web(socketfd,hit);
+            web(socketfd,hit++);
             close(socketfd);
             exit(EXIT_SUCCESS);
         }
@@ -256,10 +258,10 @@ int main(int argc, char **argv, char** envp){
             close(socketfd); //close the socket descriptor in the parent process
             while(waitpid(-1, NULL, WNOHANG) > 0);
         }
-    }
+    }(void)close(listenfd);
 }*/
     /********************************Pool of process***************************************/
-    int num_children = 0;
+    /*int num_children = 0;
     pid_t pid_Pool;
     int shm_id, *shm_ptr;
     
@@ -292,6 +294,7 @@ int main(int argc, char **argv, char** envp){
         }
         else if(pid_Pool == 0){// child process
             //printf("Child %d entering the pool!\n", getpid());
+            int child_hit = 0; // hit counter for this child process
             while(1){
                 //Wait for a request to be assigned by the parent process
                 sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
@@ -302,7 +305,7 @@ int main(int argc, char **argv, char** envp){
                 printf("My index value is: %d\n", i);
                 printf("Socket file descriptor received by child %d: %d\n", getpid(), *socketfd_ptr);
                 //Handle the request
-                web(socketfd, hit);
+                web(socketfd, child_hit++);
                 close(socketfd);
                 printf("Done, dad\n");
             }
@@ -313,15 +316,14 @@ int main(int argc, char **argv, char** envp){
         }
     }
     
-    //Parent process
     printf("num_children: %d\n", num_children);
-    
-    if(listen(listenfd, 64) < 0){
-        logger(ERROR,"system call","listen", 0);
-        continue;
-    }
+    //Parent process
     while(1){
         printf("Parent got here\n");
+        if(listen(listenfd, 64) < 0){
+            logger(ERROR,"system call","listen", 0);
+            continue;
+        }
         //parent process accepts the request and assign to a child
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if (socketfd < 0) {
@@ -333,7 +335,7 @@ int main(int argc, char **argv, char** envp){
         int index = -1;
         for (int i = 0; i < MAX_POOL_SIZE; i++) {
             //long sem_value = semctl((long)sem_array[i], 0, GETVAL);
-            //if (sem_value == 0) {
+            //if (!sem_wait(sem_array[i])) {
             index = i;
             printf("Selecting child %d to handle the request\n", pidArray[index]);
             //send the socket to the shared memory
@@ -393,9 +395,9 @@ int main(int argc, char **argv, char** envp){
             }
         }
     }
-}/**/
+}*/
      
-void sigchld_handler(int signum) {
+void sigchld_handler_k(int signum) {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) { // loop until no child is waiting to be reaped
