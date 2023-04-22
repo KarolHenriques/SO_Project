@@ -1,9 +1,9 @@
 //
 //  SO_Project_1version.c
 //
-//  Adapted by Pedro Sobral on 11/02/13.
+//  Adapted by Pedro Sobral on 02-22-13
 //  Credits to Nigel Griffiths
-//  Created by Karol Henriques on 04/04/2023.
+//  Adapted by Karol Henriques on 04-22-23.
 //
 //
 
@@ -85,10 +85,9 @@ ssize_t readn(int fd, void *buf, size_t n) {
             else{
                 return -1;      /* Error */
             }
-        } else if (nread == 0){
-            break;              /* EOF */
+        }else if (nread == 0){/* EOF */
+            break;
         }
-        
         nleft -= nread;
         ptr += nread;
     }
@@ -110,11 +109,9 @@ ssize_t writen(int fd, const void *buf, size_t n) {
                 return -1;      /* Error */
             }
         }
-        
         nleft -= nwritten;
         ptr += nwritten;
     }
-    
     return n;                   /* Return >= 0 */
 }
 
@@ -151,7 +148,7 @@ void printLinkedList(struct Node* head) {
     }
 }
 
-void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
+void pipeToFile(int pipefd[], char* fileName/*, bool writeIt*/) {
     close(pipefd[1]);
     //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
     
@@ -169,11 +166,11 @@ void pipeToFile(int pipefd[], char* fileName, bool writeIt) {
     
     printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
     
-    if(writeIt){
+//    if(writeIt){
         if(writen(fd, buf, strlen(buf)) < 0){
             pexit("writing to shared file error (parent)");
         }
-    }
+//    }
     close(pipefd[0]);
     close(fd);
 }
@@ -315,7 +312,7 @@ void handle_signal(int signal) {
         close(sockfd);
     }
         //read available data
-        pipeToFile(pipefd, fileName, true);
+        pipeToFile(pipefd, fileName);
         
         //Save it to a struct to add
         struct Node* head = NULL;
@@ -451,15 +448,20 @@ int main(int argc, char *argv[], char** envp){
                 total_bytes_received = 0;
                 bytes_received = 0;
                 do {
+                    //detect buffer overflow
+                    if (total_bytes_received == BUFSIZE) {
+                        pexit("Buffer overflow detected");
+                        exit(EXIT_FAILURE);
+                    }
                     bytes_received = recv(sockfd, buffer + total_bytes_received, BUFSIZE - total_bytes_received, 0);
                     if (bytes_received < 0){
                         pexit("Failed to receive HTTP response");
-                        return 1;
+                        exit(EXIT_FAILURE);
                     }
                     if(bytes_received == 0){
                         break;
                     }
-                    //add if to handle if we have buffer overflow
+                    
                     total_bytes_received += bytes_received;
                 } while (bytes_received > 0);
                 
@@ -526,7 +528,7 @@ int main(int argc, char *argv[], char** envp){
     //time for all processes
     TIMER_STOP();
     
-    pipeToFile(pipefd, fileName, true);
+    pipeToFile(pipefd, fileName);
     close(sockfd);
     
     //Linked list:
