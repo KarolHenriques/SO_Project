@@ -24,7 +24,7 @@
 #include <semaphore.h> // for semaphore functions
 #include <sys/wait.h>  // for waitpid() function
 #include <stdbool.h>
-
+#include <sys/sem.h>
 
 #define BUFSIZE         8096
 #define ERROR           42
@@ -37,9 +37,7 @@
 #define SHM_SIZE        10
 #define INFO            2
 
-/* Shared memory to pass the request to a new child if the one who's handling the request ends abruptly*/
-int shmid;
-void *shmaddr;
+sem_t* sem_array[MAX_POOL_SIZE];
 
 struct {
     char *ext;
@@ -56,6 +54,8 @@ struct {
     {"htm", "text/html" },
     {"html","text/html" },
     {0,0} };
+
+void sigchld_handler(int signum);
 
 /* Deals with error messages and logs everything to disk */
 
@@ -92,7 +92,7 @@ int web(int fd, int hit){
     char * fstr;
     static char buffer[BUFSIZE+1]; /* static so zero filled */
     
-    ret =read(fd,buffer,BUFSIZE);     /* read Web request in one go */
+    ret = read(fd,buffer,BUFSIZE);     /* read Web request in one go */
     
     if(ret == 0 || ret == -1) {    /* read failure stop now */
         logger(FORBIDDEN,"failed to read browser request","",fd);
@@ -171,25 +171,7 @@ int main(int argc, char **argv, char** envp){
     static struct sockaddr_in cli_addr; /* static = initialised to zeros */
     static struct sockaddr_in serv_addr; /* static = initialised to zeros */
     
-    //Shared memory variables
-    /*shmid = shmget(IPC_PRIVATE, SHM_SIZE, IPC_CREAT | 0666);
-     if (shmid == -1) {
-     perror("shmget");
-     exit(1);
-     }
-     
-     // Attach shared memory segment to process
-     shmaddr = shmat(shmid, NULL, 0);
-     if (shmaddr == (void*)-1) {
-     perror("Failed to attach shared memory segment");
-     exit(1);
-     }
-     
-     // Set up signal handler for SIGCHLD
-     if (signal(SIGCHLD, handle_sigchld) == SIG_ERR) {
-     perror("Failed to set up signal handler for SIGCHLD");
-     exit(1);
-     }*/
+    signal(SIGCHLD, sigchld_handler);
     
     if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
         (void)printf("\n\nhint: ./tws Port-Number Top-Directory\t\tversion %d\n\n"
@@ -231,175 +213,163 @@ int main(int argc, char **argv, char** envp){
     serv_addr.sin_port = htons(port);
     if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
         logger(ERROR,"system call","bind",0);
-    /********************************If we are not using a pool**I*****************************************************************/
+    /********************************Sequencial request handling**I*****************************************************************/
     /*if(listen(listenfd,64) <0)
-     logger(ERROR,"system call","listen",0);*/
+        logger(ERROR,"system call","listen",0);
     
-    /*for(hit=1; ;hit++) {
-     length = sizeof(cli_addr);
-     //Block waiting for clients
-     socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-     if (socketfd<0)
-     logger(ERROR,"system call","accept",0);
-     else
-     web(socketfd,hit);
-     }
-     (void)close(listenfd);*/
-    
+    for(hit=1; ;hit++) {
+        length = sizeof(cli_addr);
+        //Block waiting for clients
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        if (socketfd<0)
+            logger(ERROR,"system call","accept",0);
+        else
+            web(socketfd,hit);
+    }
+    (void)close(listenfd);
+}*/
     /********************************Child to handle each request*********************************/
-    /*while(1){
-     socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
-     if(socketfd < 0){
-     logger(ERROR,"system call","accept",0);
-     continue;
-     }
-     // fork new child process to handle client request
-     pid = fork();
-     if (pid < 0) {
-     logger(ERROR,"fork failed","fork",0);
-     close(socketfd);
-     continue;
-     }
-     if(pid == 0){//child process to handle the client's request
-     web(socketfd,hit);
-     exit(EXIT_SUCCESS);
-     }
-     if(pid > 0){ //PARENT PROCESS ADDED WITHOUT TEST
-     wait(NULL); // wait for child process to finish before creating another one
-     }
-     close(socketfd);
-     }*/
+    /* length = sizeof(cli_addr);
+    
+    if(listen(listenfd,64) <0){
+        logger(ERROR,"system call","listen",0);
+    }
+    
+    while(1){
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        if(socketfd < 0){
+            logger(ERROR,"system call","accept",0);
+            continue;
+        }
+        // fork new child process to handle client request
+        pid = fork();
+        if (pid < 0) {
+            logger(ERROR,"fork failed","fork",0);
+        }
+        if(pid == 0){//child process to handle the client's request
+            web(socketfd,hit);
+            close(socketfd);
+            exit(EXIT_SUCCESS);
+        }
+        else{
+            close(socketfd); //close the socket descriptor in the parent process
+            while(waitpid(-1, NULL, WNOHANG) > 0);
+        }
+    }
+}*/
     /********************************Pool of process***************************************/
     int pidArray[MAX_POOL_SIZE];
     int num_children = 0;
     pid_t pid_Pool;
     int shm_id, *shm_ptr;
     
+    length = sizeof(cli_addr);
+    
     // Create shared memory for process availability flags
     shm_id = shmget(SHM_KEY, SHM_SIZE * sizeof(int), IPC_CREAT | 0666);
-    
     if (shm_id < 0) {
         logger(ERROR, "shmget failed", "shmget", 0);
-        exit(1);
     }
+     
     shm_ptr = (int*)shmat(shm_id, NULL, 0);
     if (shm_ptr == (int*)-1) {
         logger(ERROR, "shmat failed", "shmat", 0);
-        exit(1);
     }
     
-    sem_t *sem;
-    sem = sem_open("semaphore", O_CREAT, 0644, 1);
-    if (sem == SEM_FAILED) {
-        logger(ERROR, "sem_open failed", "sem_open", 0);
-        exit(1);
-    }
-    
+    //One semaphore to each child
     for (int i = 0; i < MAX_POOL_SIZE; i++) {
-        shm_ptr[i] = 1; // Initialize all flags to 1 (available)
+        sem_array[i] = sem_open("semaphore", O_CREAT, 0644, 0); //initialize each semaphore with 0, meaning "available"
+        if (sem_array[i] == SEM_FAILED) {
+            logger(ERROR, "sem_open failed", "sem_open", 0);
+        }
     }
-    // Create child processes
+    
+    // Populate the pool
     for (int i = 0; i < MAX_POOL_SIZE; i++) {
         pid_Pool = fork();
         if (pid_Pool < 0) {
             logger(ERROR,"fork failed","fork",0);
         }
-        else if(pid_Pool == 0){
-            // child process
-            //break;
-            bool request_available = false;
+        else if(pid_Pool == 0){// child process
+            //printf("Child %d entering the pool!\n", getpid());
             while(1){
                 //Wait for a request to be assigned by the parent process
-                printf("I'm here!");
-                sem_wait(sem);
-                
+                sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
+                printf("Child %d received request!\n", getpid());
                 if (getppid() == 1) { //check if the parent exited
-                    break;
+                    kill(SIGTERM, getpid()); //if the parent exited, child must end
                 }
-                
                 // Read the socket file descriptor from shared memory
-                int* socketfd_ptr = (int*)(shm_ptr + SHM_SIZE);
+                int* socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
                 int socketfd = socketfd_ptr[i];
-                
-                if (socketfd > 0) {
-                    printf("My index value is: %d\n", i);
-                    
-                    //Handle the request
-                    web(socketfd, hit);
-                    
-                    printf("Done, dad\n");
-                    
-                    shm_ptr[i] = 1; //Set availability flag to 1 (available)
-                    
-                    close(socketfd);
-                    //Notify the parent process that we're done handling the request
-                    sem_post(sem);
-                    request_available = false;
-                }
-                else if (!request_available) {
-                    printf("No requests available, sleeping...\n");
-                    request_available = true;
-                    sleep(1); // Sleep for 1 second before checking again
-                }
+                printf("My index value is: %d\n", i);
+                printf("Socket file descriptor received by child %d: %d\n", getpid(), *socketfd_ptr);
+                //Handle the request
+                web(socketfd, hit);
+                close(socketfd);
+                printf("Done, dad\n");
             }
         }
         else{
             pidArray[i] = pid_Pool;
             num_children++;
+            printf("num_children: %d\n", num_children);
         }
     }
-    
     //Parent process
     while(1){
-        //parent process accepts the request and assign to a child
+        printf("Parent got here\n");
         if(listen(listenfd, 64) < 0){
-            logger(ERROR,"system call","listen",0);
-            continue;
+            logger(ERROR,"system call","listen", 0);
         }
-        /*int*/ socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+        //parent process accepts the request and assign to a child
+        socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if (socketfd < 0) {
+            logger(ERROR,"system call","accept", 0);
             close(socketfd);
-            logger(ERROR,"system call","accept",0);
-            continue;
+            printf("Something went wrong\n");
         }
         // Find next available child process
+        printf("socketfd %d\n", socketfd );
         int index = -1;
-        for (int i = 0; i < SHM_SIZE; i++) {
-            if (shm_ptr[i] == 1) {
-                index = i;
-                shm_ptr[i] = 0; // Set availability flag to 0 (busy)
-                printf("Selecting child %d to handle the request \n", pidArray[index]);
-                close(socketfd);
-                
-                //send the socket to the shared memory
-                int* socketfd_ptr = (int*)(shm_ptr + SHM_SIZE);
-                socketfd_ptr[i] = socketfd;
-                
-                sem_post(sem);
-                break;
-            }
+        for (int i = 0; i < MAX_POOL_SIZE; i++) {
+            //long sem_value = semctl((long)sem_array[i], 0, GETVAL);
+            //if (sem_value == 0) {
+            index = i;
+            printf("Selecting child %d to handle the request\n", pidArray[index]);
+            //send the socket to the shared memory
+            int *socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
+            *socketfd_ptr = socketfd;
+            printf("Socket file descriptor sent to child %d: %d\n", pidArray[index], *socketfd_ptr);
+            close(socketfd);
+            sem_post(sem_array[i]); // Set availability flag to 1 (waking child up)
+            break;
+            //}
         }
         if (index == -1) {
             logger(ERROR, "no available child processes", "main", 0);
-            continue;
         }
-        
-        /*else {
-         sleep(1); // Wait for 1 second before checking for requests again
-         }*/
     }
     
     // Detach shared memory
     if (shmdt(shm_ptr) == -1) {
         logger(ERROR, "shmdt failed", "shmdt", 0);
-        exit(1);
     }
     
     // Remove shared memory
     if (shmctl(shm_id, IPC_RMID, 0) == -1) {
         logger(ERROR, "shmctl(IPC_RMID) failed", "shmctl", 0);
-        exit(1);
     }
+     
+    //Close and unlink semaphores
+     for (int i = 0; i < MAX_POOL_SIZE; i++) {
+         if (sem_close(sem_array[i]) == -1) {
+             logger(ERROR, "sem_close failed", "sem_close", 0);
+         }
+        if (sem_unlink("semaphore") == -1) {
+            logger(ERROR, "sem_unlink failed", "sem_unlink", 0);
+        }
+     }
     
     // Close listening socket
     close(listenfd);
@@ -424,8 +394,8 @@ int main(int argc, char **argv, char** envp){
             }
         }
     }
-}
-
+}/**/
+     
 void sigchld_handler(int signum) {
     int status;
     pid_t pid;
@@ -433,22 +403,19 @@ void sigchld_handler(int signum) {
         if (WIFEXITED(status)) { // child process terminated normally
             int i;
             for (i = 0; i < MAX_POOL_SIZE; i++) { // check if the child was in the pool
-                if (((int*)shmaddr)[i] == pid) {
-                    ((int*)shmaddr)[i] = fork(); // replace the terminated child with a new child process
+                if (((int*)sem_array)[i] == pid) {
+                    ((int*)sem_array)[i] = fork(); // replace the terminated child with a new child process
                     //Check fork
                     break;
-                    }
                 }
             }
-        
-        else{// child process did not terminate normally
-            ;
         }
     }
 }
-    /* When a child process receives a SIGCHLD, it means that the child process has terminated, and the parent process is notified about it. The parent process can then choose to do something in response to the child process termination, such as creating a new child process to handle pending requests.
-     
-     However, it's important to note that once a child process is terminated, all the resources associated with that process, including any pending requests or tasks, are lost. So if the child process was handling a request when it received a SIGCHLD and terminated, the parent process would not be able to create a new child process to continue handling that same request.*/
+
+/* When a child process receives a SIGCHLD, it means that the child process has terminated, and the parent process is notified about it. The parent process can then choose to do something in response to the child process termination, such as creating a new child process to handle pending requests.
+ 
+ However, it's important to note that once a child process is terminated, all the resources associated with that process, including any pending requests or tasks, are lost. So if the child process was handling a request when it received a SIGCHLD and terminated, the parent process would not be able to create a new child process to continue handling that same request.*/
 
 
 
