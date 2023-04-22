@@ -1,9 +1,9 @@
 # SO_Project README
 
-# Main code
+# Main 
 This code is a client that sends HTTP GET requests to a server, given a server IP address, a port number, and the number of requests. The client creates multiple child processes to handle the requests, and each child sends one request to the server. The code is written in C.
 
-The original code was adapted by Pedro Sobral on 11/02/13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 17/04/23.
+The code was adapted by Pedro Sobral on 02-22-13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 04-22-23.
 
 ## Getting Started
 
@@ -34,7 +34,7 @@ The TIMER_START() and TIMER_STOP() functions are used to measure the time taken 
 
 The handle_signal() function is used to handle the SIGPIPE and SIGINT signals.
 
-The original code was adapted by Pedro Sobral on 02-22-13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 04-22-23.
+The code was adapted by Pedro Sobral on 02-22-13 from Nigel Griffiths' code and was further adapted by Karol Henriques on 04-22-23.
 
 # Tiny Web Server
 
