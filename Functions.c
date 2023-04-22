@@ -108,9 +108,8 @@ void printLinkedList(struct Node* head);
  *
  * @param pipefd An array of integers representing the file descriptors for the read and write ends of the pipe.
  * @param fileName A string representing the name of the file to write the data to.
- * @param writeIt A boolean value indicating whether to write the data to the file or not.
  */
-void pipeToFile(int pipefd[], char* fileName, bool writeIt);
+void pipeToFile(int pipefd[], char* fileName);
 
 /**
  * @brief Parse a character array and populate a Record struct.
