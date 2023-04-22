@@ -1,7 +1,7 @@
 //
 //  SO_Project_1version.c
 //
-//  Adapted by Pedro Sobral on 02-22-13
+//  Adapted by Pedro Sobral on 02-22-13.
 //  Credits to Nigel Griffiths
 //  Adapted by Karol Henriques on 04-22-23.
 //
@@ -148,7 +148,7 @@ void printLinkedList(struct Node* head) {
     }
 }
 
-void pipeToFile(int pipefd[], char* fileName/*, bool writeIt*/) {
+void pipeToFile(int pipefd[], char* fileName) {
     close(pipefd[1]);
     //int fd = open(fileName, O_RDONLY); this permition is to read the data if was the child that wrote that
     
@@ -166,11 +166,11 @@ void pipeToFile(int pipefd[], char* fileName/*, bool writeIt*/) {
     
     printf("Parent read message from pipe:\n%.*s\n", (int)count, buf);
     
-//    if(writeIt){
-        if(writen(fd, buf, strlen(buf)) < 0){
-            pexit("writing to shared file error (parent)");
-        }
-//    }
+    
+    if(writen(fd, buf, strlen(buf)) < 0){
+        pexit("writing to shared file error (parent)");
+    }
+    
     close(pipefd[0]);
     close(fd);
 }
@@ -244,6 +244,7 @@ void terminateChildren(){
             }
         }
     }
+    free(childrenPids);
 }
 
 int countRecords(struct Node* head) {
@@ -541,6 +542,7 @@ int main(int argc, char *argv[], char** envp){
     
     DataAnalysisReport(head, time_delta);
     
+    free(childrenPids);
     exit(EXIT_SUCCESS);
 }
 
