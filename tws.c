@@ -38,6 +38,7 @@
 #define INFO            2
 
 sem_t* sem_array[MAX_POOL_SIZE];
+int pidArray[MAX_POOL_SIZE];
 
 struct {
     char *ext;
@@ -258,7 +259,6 @@ int main(int argc, char **argv, char** envp){
     }
 }*/
     /********************************Pool of process***************************************/
-    int pidArray[MAX_POOL_SIZE];
     int num_children = 0;
     pid_t pid_Pool;
     int shm_id, *shm_ptr;
@@ -296,12 +296,9 @@ int main(int argc, char **argv, char** envp){
                 //Wait for a request to be assigned by the parent process
                 sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
                 printf("Child %d received request!\n", getpid());
-                if (getppid() == 1) { //check if the parent exited
-                    kill(SIGTERM, getpid()); //if the parent exited, child must end
-                }
                 // Read the socket file descriptor from shared memory
                 int* socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
-                int socketfd = socketfd_ptr[i];
+                socketfd = *socketfd_ptr;
                 printf("My index value is: %d\n", i);
                 printf("Socket file descriptor received by child %d: %d\n", getpid(), *socketfd_ptr);
                 //Handle the request
@@ -313,24 +310,25 @@ int main(int argc, char **argv, char** envp){
         else{
             pidArray[i] = pid_Pool;
             num_children++;
-            printf("num_children: %d\n", num_children);
         }
     }
+    
+    printf("num_children: %d\n", num_children);
     //Parent process
     while(1){
         printf("Parent got here\n");
         if(listen(listenfd, 64) < 0){
             logger(ERROR,"system call","listen", 0);
+            continue;
         }
         //parent process accepts the request and assign to a child
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if (socketfd < 0) {
-            logger(ERROR,"system call","accept", 0);
             close(socketfd);
-            printf("Something went wrong\n");
+            logger(ERROR,"system call","accept", 0);
+            continue;
         }
         // Find next available child process
-        printf("socketfd %d\n", socketfd );
         int index = -1;
         for (int i = 0; i < MAX_POOL_SIZE; i++) {
             //long sem_value = semctl((long)sem_array[i], 0, GETVAL);
@@ -403,9 +401,11 @@ void sigchld_handler(int signum) {
         if (WIFEXITED(status)) { // child process terminated normally
             int i;
             for (i = 0; i < MAX_POOL_SIZE; i++) { // check if the child was in the pool
-                if (((int*)sem_array)[i] == pid) {
-                    ((int*)sem_array)[i] = fork(); // replace the terminated child with a new child process
-                    //Check fork
+                if (pidArray[i] == pid) {
+                    if((pidArray[i] = fork()) < 0){
+                        logger(ERROR, "replace child", "fork", 0);
+                        i--; //prevents the loop to move to another array position
+                    }
                     break;
                 }
             }
