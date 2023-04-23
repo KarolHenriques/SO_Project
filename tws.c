@@ -296,6 +296,11 @@ int main(int argc, char **argv, char** envp){
             else if(pid_Pool == 0){// child process
                 //printf("Child %d entering the pool!\n", getpid());
                 int child_hit = 0; // hit counter for this child process
+                //Attach the shared memory segment to the child process
+                shm_ptr = (int*)shmat(shm_id, NULL, 0);
+                if (shm_ptr == (int*)-1) {
+                    logger(ERROR, "shmat failed", "shmat", 0);
+                }
                 while(1){
                     //Wait for a request to be assigned by the parent process
                     sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
@@ -308,7 +313,6 @@ int main(int argc, char **argv, char** envp){
                     //Handle the request
                     web(socketfd, child_hit++);
                     close(socketfd);
-                    printf("Done, dad\n");
                 }
             }
             else{
@@ -320,7 +324,6 @@ int main(int argc, char **argv, char** envp){
     printf("num_children: %d\n", num_children);
     //Parent process
     while(1){
-        printf("Parent got here\n");
         if(listen(listenfd, 64) < 0){
             logger(ERROR,"system call","listen", 0);
             continue;
@@ -342,7 +345,7 @@ int main(int argc, char **argv, char** envp){
             //send the socket to the shared memory
             int *socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
             *socketfd_ptr = socketfd;
-            printf("Socket file descriptor sent to child %d: %d\n", pidArray[index], *socketfd_ptr);
+            //printf("Socket file descriptor sent to child %d: %d\n", pidArray[index], *socketfd_ptr);
             close(socketfd);
             sem_post(sem_array[i]); // Set availability flag to 1 (waking child up)
             break;
