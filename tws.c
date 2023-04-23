@@ -160,6 +160,7 @@ int web(int fd, int hit){
     while ((ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
         (void)write(fd,buffer,ret);
     }
+    //With this sleep commented, the child does not have the time to print its time, request, bacth and request number and pid
     sleep(1);    /* allow socket to drain before signalling the socket is closed */
     close(fd);
     return 0;
@@ -174,7 +175,7 @@ int main(int argc, char **argv, char** envp){
     static struct sockaddr_in serv_addr; /* static = initialised to zeros */
     
     /****************************************Uncomente for pool of processes******************************************/
-    //signal(SIGCHLD, sigchld_handler_k);
+    signal(SIGCHLD, sigchld_handler_k);
     
     if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
         (void)printf("\n\nhint: ./tws Port-Number Top-Directory\t\tversion %d\n\n"
@@ -217,7 +218,7 @@ int main(int argc, char **argv, char** envp){
     if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
         logger(ERROR,"system call","bind",0);
     /********************************Sequencial request handling**I*****************************************************************/
-    if(listen(listenfd,64) <0)
+    /*if(listen(listenfd,64) <0)
         logger(ERROR,"system call","listen",0);
     
     for(hit=1; ;hit++) {
@@ -230,14 +231,14 @@ int main(int argc, char **argv, char** envp){
             web(socketfd,hit);
     }
     (void)close(listenfd);
-}/**/
+}*/
     /********************************Child to handle each request*********************************/
-    /* length = sizeof(cli_addr);
+    /*length = sizeof(cli_addr);
     
     if(listen(listenfd,64) <0){
         logger(ERROR,"system call","listen",0);
     }
-    int hit = 1;
+    int hit_ = 1;
     while(1){
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if(socketfd < 0){
@@ -250,7 +251,7 @@ int main(int argc, char **argv, char** envp){
             logger(ERROR,"fork failed","fork",0);
         }
         if(pid == 0){//child process to handle the client's request
-            web(socketfd,hit++);
+            web(socketfd,hit_++);
             close(socketfd);
             exit(EXIT_SUCCESS);
         }
@@ -261,7 +262,7 @@ int main(int argc, char **argv, char** envp){
     }(void)close(listenfd);
 }*/
     /********************************Pool of process***************************************/
-    /*int num_children = 0;
+    int num_children = 0;
     pid_t pid_Pool;
     int shm_id, *shm_ptr;
     
@@ -287,34 +288,34 @@ int main(int argc, char **argv, char** envp){
     }
     
     // Populate the pool
-    for (int i = 0; i < MAX_POOL_SIZE; i++) {
-        pid_Pool = fork();
-        if (pid_Pool < 0) {
-            logger(ERROR,"fork failed","fork",0);
-        }
-        else if(pid_Pool == 0){// child process
-            //printf("Child %d entering the pool!\n", getpid());
-            int child_hit = 0; // hit counter for this child process
-            while(1){
-                //Wait for a request to be assigned by the parent process
-                sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
-                printf("Child %d received request!\n", getpid());
-                // Read the socket file descriptor from shared memory
-                int* socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
-                socketfd = *socketfd_ptr;
-                printf("My index value is: %d\n", i);
-                printf("Socket file descriptor received by child %d: %d\n", getpid(), *socketfd_ptr);
-                //Handle the request
-                web(socketfd, child_hit++);
-                close(socketfd);
-                printf("Done, dad\n");
+        for (int i = 0; i < MAX_POOL_SIZE; i++) {
+            pid_Pool = fork();
+            if (pid_Pool < 0) {
+                logger(ERROR,"fork failed","fork",0);
+            }
+            else if(pid_Pool == 0){// child process
+                //printf("Child %d entering the pool!\n", getpid());
+                int child_hit = 0; // hit counter for this child process
+                while(1){
+                    //Wait for a request to be assigned by the parent process
+                    sem_wait(sem_array[i]); //since the semaphore is 0, this process will be blocked until it changes to 1
+                    printf("Child %d received a request!\n", getpid());
+                    // Read the socket file descriptor from shared memory
+                    int* socketfd_ptr = (int*)(shm_ptr + i * sizeof(int));
+                    socketfd = *socketfd_ptr;
+                    printf("My index value is: %d\n", i);
+                    printf("Socket file descriptor received by child %d: %d\n", getpid(), *socketfd_ptr);
+                    //Handle the request
+                    web(socketfd, child_hit++);
+                    close(socketfd);
+                    printf("Done, dad\n");
+                }
+            }
+            else{
+                pidArray[i] = pid_Pool;
+                num_children++;
             }
         }
-        else{
-            pidArray[i] = pid_Pool;
-            num_children++;
-        }
-    }
     
     printf("num_children: %d\n", num_children);
     //Parent process
@@ -395,7 +396,7 @@ int main(int argc, char **argv, char** envp){
             }
         }
     }
-}*/
+}/**/
      
 void sigchld_handler_k(int signum) {
     int status;
