@@ -351,6 +351,7 @@ int main(int argc, char **argv, char** envp){
         if (index == -1) {
             logger(ERROR, "no available child processes", "main", 0);
         }
+        sleep(1);
     }
     
     // Detach shared memory
@@ -368,10 +369,11 @@ int main(int argc, char **argv, char** envp){
          if (sem_close(sem_array[i]) == -1) {
              logger(ERROR, "sem_close failed", "sem_close", 0);
          }
-        if (sem_unlink("semaphore") == -1) {
-            logger(ERROR, "sem_unlink failed", "sem_unlink", 0);
-        }
      }
+    
+    if (sem_unlink("semaphore") == -1) {
+        logger(ERROR, "sem_unlink failed", "sem_unlink", 0);
+    }
     
     // Close listening socket
     close(listenfd);

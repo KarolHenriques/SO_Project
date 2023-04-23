@@ -49,7 +49,7 @@ float time_delta;
 
 int pexit(char* msg){
     perror(msg);
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 struct Record {
@@ -454,7 +454,13 @@ int main(int argc, char *argv[], char** envp){
                         pexit("Buffer overflow detected");
                         exit(EXIT_FAILURE);
                     }
+                    /* The recv function is a system call in C used for receiving data from a socket.
+                     It returns the number of bytes received on succes, or -1 on failure.
+                     recv and read are both system calls in C that are used for reading data from a file descriptor.
+                     However, recv is specifically designed for use with network sockets,
+                     while read is a more general-purpose function that can be used with any file descriptor, including sockets.*/
                     bytes_received = recv(sockfd, buffer + total_bytes_received, BUFSIZE - total_bytes_received, 0);
+                    /************************bytes_received = recv(sockfd, where to store, possible size, flag****************************************/
                     if (bytes_received < 0){
                         pexit("Failed to receive HTTP response");
                         exit(EXIT_FAILURE);
