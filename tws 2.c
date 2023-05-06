@@ -153,7 +153,7 @@ int web(int fd, int hit)
 
 /* just checks command line arguments, setup a listening socket and block on accept waiting for clients */
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char** envp)
 {
 	int i, port, pid, listenfd, socketfd, hit;
 	socklen_t length;
