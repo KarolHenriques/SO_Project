@@ -290,6 +290,8 @@ void* handle_request(void* arg){
     
     //Send HTTP request
     
+    TIMER_START();
+    
     snprintf(request, BUFSIZE, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", url);
     
     if (send(sockfd, request, strlen(request), 0) < 0) {
@@ -441,9 +443,9 @@ int main(int argc, char *argv[], char** envp){
     //One thread to handle each reques
     pthread_t thread_ids[batch_size];
     
-    printf("batch_size: %d\n", batch_size);
+    /*printf("batch_size: %d\n", batch_size);
     printf("n_batches: %d\n", n_batches);
-    printf("n_requests: %d\n", n_requests);
+    printf("n_requests: %d\n", n_requests);*/
     
     TIMER_START();
     
@@ -465,7 +467,6 @@ int main(int argc, char *argv[], char** envp){
             if(pthread_create(&thread_ids[i], NULL, handle_request, (void*)args) != 0){
                 pexit("Thread creation error");
             }
-            TIMER_START();
         }
     }
     
