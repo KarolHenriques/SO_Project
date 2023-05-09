@@ -489,13 +489,12 @@ void* pool(void* args){
                 current_state = RECEIVING;
                 break;
             case RECEIVING:
-                descriptor = buffer->descriptors[buffer->out];
+                
                 printf("Receiving a request\n");
                 current_state = PROCESSING;
                 break;
             case PROCESSING:
-                buffer->out = (buffer->out + 1) % MAX_REQUESTS;
-                buffer->count--;
+                descriptor = buffer->descriptors[buffer->out];
                 web(descriptor, hit++);
                 current_state = SENDING;
                 break;
@@ -506,10 +505,14 @@ void* pool(void* args){
             case END:
                 printf("Request ended\n");
                 close(descriptor);
+                buffer->out = (buffer->out + 1) % MAX_REQUESTS;
+                buffer->count--;
                 current_state = READY;
-               // break;
+                break;
         }
-        //pthread_mutex_unlock(&mutex);
+ 
+        pthread_mutex_unlock(&mutexFSM);
+        pthread_cond_signal(&condFSM);
     }
 
     return NULL;
