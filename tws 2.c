@@ -5,7 +5,7 @@
 //  Adapted by Pedro Sobral on 11/02/13.
 //  Credits to Nigel Griffiths
 //
-//
+//  Adapted by Karol Henriques on 05-07-23
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,17 +23,19 @@
 #include <dispatch/dispatch.h>
 
 
-#define BUFSIZE     8096
-#define ERROR       42
-#define LOG         44
-#define FORBIDDEN   403
-#define NOTFOUND    404
-#define VERSION     1
-#define WORKERTH    6
-#define PRODUCTS    5
+#define BUFSIZE         8096
+#define ERROR           42
+#define LOG             44
+#define FORBIDDEN       403
+#define NOTFOUND        404
+#define VERSION         1
+#define WORKERTH        6
+#define PRODUCTS        5
+#define MAX_REQUESTS    10
 
 /********Thread to handle each request  global variables **********/
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+/***************************************************************************/
 
 /****************Producer-consumer global variables ***************/
 pthread_t worker_threads_ids[WORKERTH];
@@ -46,8 +48,28 @@ int h = 1;
 //Semaphore
 dispatch_semaphore_t can_produce;
 dispatch_semaphore_t can_consume;
+/***************************************************************************/
 
+/********************************FSM global variables *****************/
+pthread_t FSML_threads_ids[WORKERTH];
+pthread_mutex_t mutexFSM = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condFSM = PTHREAD_COND_INITIALIZER;
+typedef enum{
+    READY,
+    RECEIVING,
+    PROCESSING,
+    SENDING,
+    END
+}state_t;
 
+/*  sometimes it can be helpful to use a struct to represent the states, especially if you have complex states that require additional information to be stored. */
+typedef struct {
+    int descriptors[MAX_REQUESTS];
+    int in;   // next free slot to insert a new request descriptor
+    int out;  // next descriptor to process
+    int count;  // number of requests in buffer
+} request_buffer;
+/***************************************************************************/
 struct {
 	char *ext;
 	char *filetype;
@@ -73,6 +95,12 @@ typedef struct threadInfo{
 
 void* toConsume();
 void* toPrint();
+void* pool(void* args);
+
+int pexit(char * msg){
+    perror(msg);
+    exit(1);
+}
 
 void logger(int type, char *s1, char *s2, int socket_fd){
 	int fd ;
@@ -299,56 +327,119 @@ int main(int argc, char **argv, char** envp){
      
      }*/
     /************************************************producer-consumer*******************************************************/
-    can_produce = dispatch_semaphore_create(PRODUCTS);
-    can_consume = dispatch_semaphore_create(0);
-    pthread_mutex_init(&mutexP, NULL);
-    pthread_mutex_init(&mutexC, NULL);
-    //Consumers threads creation
+    /*can_produce = dispatch_semaphore_create(PRODUCTS);
+     can_consume = dispatch_semaphore_create(0);
+     pthread_mutex_init(&mutexP, NULL);
+     pthread_mutex_init(&mutexC, NULL);
+     //Consumers threads creation
+     for(int i = 0; i < WORKERTH; i++){
+     if(pthread_create(&worker_threads_ids[i], NULL, toConsume, 0) != 0){
+     logger(ERROR,"system call", "thread", 0);
+     }
+     }
+     
+     //buffer printer thread
+     if(pthread_create(&buffer_printer_id, NULL, toPrint, 0) != 0){
+     logger(ERROR,"system call", "thread", 0);
+     }
+     
+     //producer - one!
+     if(listen(listenfd,64) <0){
+     logger(ERROR,"system call","listen",0);
+     }
+     while(1){
+     //"produce" item:
+     length = sizeof(cli_addr);
+     socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+     if(socketfd < 0){
+     logger(ERROR,"system call","accept",0);
+     }
+     //wait on the can_produce semaphore
+     else{
+     dispatch_semaphore_wait(can_produce, DISPATCH_TIME_FOREVER);
+     //to guarantee that producer and consumer will not try to access the same place, we are going to lock the index where the socket index is going to be placed
+     pthread_mutex_lock(&mutexP);
+     buf[producerTH] = socketfd;
+     printf("Item produced\n");
+     //for circular walking in the array:
+     producerTH = (producerTH + 1) % PRODUCTS;
+     pthread_mutex_unlock(&mutexP);
+     //signal on the can_consume sempahore
+     dispatch_semaphore_signal(can_consume);
+     }
+     }
+     
+     //Wait all threads in the pool to end:
+     for (int i = 0; i < WORKERTH; i++) {
+     pthread_join(worker_threads_ids[i], NULL);
+     }
+     
+     //Destroy all semaphores and locks
+     dispatch_release(can_produce);
+     dispatch_release(can_consume);
+     pthread_mutex_destroy(&mutexP);
+     pthread_mutex_destroy(&mutexC);
+     
+     return 0;
+     
+     }*/
+    /****************************************************FSM*******************************************************************/
+    
+    //Initialise buffer
+    request_buffer buffer = { .in = 0, .out = 0, .count = 0 };
+    
+    //Worker threads creation
     for(int i = 0; i < WORKERTH; i++){
-        if(pthread_create(&worker_threads_ids[i], NULL, toConsume, 0) != 0){
+        if(pthread_create(&FSML_threads_ids[i], NULL, pool, &buffer) != 0){
             logger(ERROR,"system call", "thread", 0);
         }
     }
     
-    //buffer printer thread
-    if(pthread_create(&buffer_printer_id, NULL, toPrint, 0) != 0){
-        logger(ERROR,"system call", "thread", 0);
+    if(listen(listenfd,64) <0){
+        logger(ERROR,"system call","listen",0);
     }
     
-    //producer - one!
-    if(listen(listenfd,64) <0){
-     logger(ERROR,"system call","listen",0);
-     }
+    //The main thread will allocate the requests in a shared struct
     while(1){
-        //"produce" item:
+        //printf("Main thread here\n");
         length = sizeof(cli_addr);
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if(socketfd < 0){
             logger(ERROR,"system call","accept",0);
         }
-        //wait on the can_produce semaphore
-        else{
-            dispatch_semaphore_wait(can_produce, DISPATCH_TIME_FOREVER);
-            //to guarantee that producer and consumer will not try to access the same place, we are going to lock the index where the socket index is going to be placed
-            pthread_mutex_lock(&mutexP);
-            buf[producerTH] = socketfd;
-            printf("Item produced\n");
-            //for circular walking in the array:
-            producerTH = (producerTH + 1) % PRODUCTS;
-            pthread_mutex_unlock(&mutexP);
-            //signal on the can_consume sempahore
-            dispatch_semaphore_signal(can_consume);
+        pthread_mutex_lock(&mutexFSM);
+        //If the buffer is full:
+        while (buffer.count == MAX_REQUESTS) {
+            pthread_cond_wait(&condFSM, &mutexFSM);
+        }
+        buffer.descriptors[buffer.in] = socketfd;
+        buffer.in = (buffer.in + 1) % MAX_REQUESTS;
+        buffer.count++;
+        //printf("Number of request on buffer: %d\n", buffer.count);
+        pthread_mutex_unlock(&mutexFSM);
+        pthread_cond_signal(&condFSM);
+    }
+    
+    //Cleanup
+    for (int i = 0; i < WORKERTH; i++) {
+        if(pthread_cancel(FSML_threads_ids[i]) != 0){
+            pexit("Thread cancellation error");
+        }
+        if(pthread_join(FSML_threads_ids[i], NULL) != 0){
+            pexit("Join error");
         }
     }
-  
-    dispatch_release(can_produce);
-    dispatch_release(can_consume);
-    pthread_mutex_destroy(&mutexP);
-    pthread_mutex_destroy(&mutexC);
-  
-    return 0;
+    close(socketfd);
     
-}
+    // Release resources
+    if(pthread_mutex_destroy(&mutexFSM) != 0){
+        pexit("Mutex destroy error");
+    }
+    if(pthread_cond_destroy(&condFSM) != 0){
+        pexit("Cond destroy error");
+    }
+    
+}//Final curly
 
 void* toConsume(){
     while(1){
@@ -374,6 +465,52 @@ void* toPrint(){
         for(int i = 0; i < PRODUCTS; i++){
             printf("buf[%d] = %d\n", i, buf[i]);
         }
-        sleep(10);
+        sleep(1);
     }
+}
+
+void* pool(void* args){
+    //unwrap the arguments sent by the main thread
+    request_buffer* buffer = (request_buffer*)args;
+    int descriptor;
+    state_t current_state = READY;
+    int hit = 1;
+    //printf("WORKER THREAD HERE\n");
+    while(1){
+        // Wait for a request to arrive in the buffer
+        pthread_mutex_lock(&mutexFSM);
+        while (buffer->count == 0){
+            pthread_cond_wait(&condFSM, &mutexFSM);
+        }
+        printf("A request arrived!\n");
+        switch(current_state){
+            case READY:
+                printf("I'm ready!. ID: %lu\n", pthread_self());
+                current_state = RECEIVING;
+                break;
+            case RECEIVING:
+                descriptor = buffer->descriptors[buffer->out];
+                printf("Receiving a request\n");
+                current_state = PROCESSING;
+                break;
+            case PROCESSING:
+                buffer->out = (buffer->out + 1) % MAX_REQUESTS;
+                buffer->count--;
+                web(descriptor, hit++);
+                current_state = SENDING;
+                break;
+            case SENDING:
+                printf("Request handled\n");
+                current_state = END;
+                break;
+            case END:
+                printf("Request ended\n");
+                close(descriptor);
+                current_state = READY;
+               // break;
+        }
+        //pthread_mutex_unlock(&mutex);
+    }
+
+    return NULL;
 }
