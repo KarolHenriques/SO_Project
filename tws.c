@@ -232,7 +232,7 @@ int main(int argc, char **argv, char** envp){
      (void)close(listenfd);
      }*/
     /********************************Child to handle each request*********************************/
-    /*length = sizeof(cli_addr);
+    length = sizeof(cli_addr);
      
      if(listen(listenfd,64) <0){
      logger(ERROR,"system call","listen",0);
@@ -259,9 +259,9 @@ int main(int argc, char **argv, char** envp){
      // while(waitpid(-1, NULL, WNOHANG) > 0); // if the pearent should not wait otherwise it will be sequencial
      }
      }(void)close(listenfd);
-     }*/
+     }/**/
     /********************************Pool of process***************************************/
-    int num_children = 0;
+    /*int num_children = 0;
     pid_t pid_Pool;
     length = sizeof(cli_addr);
     
@@ -325,7 +325,7 @@ int main(int argc, char **argv, char** envp){
             }
         }
     }
-}/**/
+}*/
 
 void sigchld_handler_k(int signum) {
     int status;

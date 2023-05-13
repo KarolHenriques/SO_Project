@@ -37,6 +37,11 @@ time_delta = (float)tv.tv_sec + tv.tv_usec / 1000000.0
 struct timeval tv1, tv2, tv;
 float time_delta;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_t** thread_ids;
+//File
+char* fileName = "sharedTextFile_threads.txt";
+int batch_size;
+
 
 int pexit(char * msg){
     perror(msg);
@@ -168,7 +173,7 @@ void readFromFile(char* fileName, struct Node** head) {
     int fd = open(fileName, O_RDONLY);
     if (fd == -1) {
         pexit("Unable to open file");
-    }
+    }/**/
     
     struct Record record;
     char buf[MAX_LINE_SIZE + 1];  // add space for null terminator
@@ -251,6 +256,11 @@ void DataAnalysisReport (struct Node* head, float time_delta){
 }
 
 void* handle_request(void* arg){
+    sigset_t mask;
+    // Block SIGINT for this thread
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
     
     ARGS* info = (ARGS*)arg;
     
@@ -266,10 +276,11 @@ void* handle_request(void* arg){
     serv_addr.sin_port = htons(atoi(info->Port));
     
     /* Connect to the socket offered by the web server */
+    //printf("Connect\n");
     if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) <0)
         pexit("connect() failed");
     
-    printf("client connected to IP = %s PORT = %s Handled by thread = %d\n", info->IP, info->Port, info->i);
+    printf("client connected to IP = %s PORT = %s Handled by thread = %d\n", info->IP, info->Port, info->j);
     
     char request[BUFSIZE], buffer[BUFSIZE], response_code[RESPONSE_SIZE];
     int bytes_received, total_bytes_received;
@@ -319,7 +330,7 @@ void* handle_request(void* arg){
         
     } while (bytes_received > 0);
     
-    /* f you declare a variable inside a function, it is a local variable that is only visible within that function. When a thread is created, it is given its own stack, which includes space for all the local variables it needs. This means that each thread has its own copy of the local variables declared inside a function, and changes made to those variables are not visible to other threads.*/
+    /* f we declare a variable inside a function, it is a local variable that is only visible within that function. When a thread is created, it is given its own stack, which includes space for all the local variables it needs. This means that each thread has its own copy of the local variables declared inside a function, and changes made to those variables are not visible to other threads.*/
     
     // Extract the HTTP response code
     char* http_start = strstr(buffer, "HTTP/1.1");
@@ -340,23 +351,23 @@ void* handle_request(void* arg){
     response_code[code_len] = '\0';
     printf("HTTP response code: %s\n", response_code);
     
-    
     //Open the file once, in the main thread, and send the descriptor to each thread
     
     //Use mutex to lock the file while we are writing to it
     char toFile[MAX_LINE_SIZE];
     sprintf(toFile, "%lu;%d;%d;%s;%f\n", pthread_self(), info->j, info->i, response_code, time_delta/**/);
-    printf("%s\n", toFile);
+    //printf("%s\n", toFile);
     TIMER_STOP();
     
     //Lock the access to the shared file. Only one thread can write to it at time
+//    write function is thread safe
     pthread_mutex_lock(&mutex);
     
     /*if(write(info->file_fd, toFile, strlen(toFile)) < 0){ //add writeN function
         pexit("writing to shared file error (thread)");
     }*/
     
-    if(writen(info->file_fd, toFile, strlen(toFile)) < 0){ //add writeN function
+    if(writen(info->file_fd, toFile, strlen(toFile)) < 0){
         pexit("writing to shared file error (thread)");
     }
     
@@ -367,15 +378,49 @@ void* handle_request(void* arg){
     pthread_exit(NULL);
 }
 
+void handle_signal(int signal){
+    //cancel all threads
+    if(signal == SIGINT){
+        for(int i = 0; i < batch_size; i++){
+            printf("%lu\n", thread_ids[i]);
+            if(pthread_cancel(thread_ids[i]) != 0){
+                pexit("Thread cancellation error");
+            }
+        }/**/
+        //Read the content available in the shared file
+        char buf[BUFSIZE];
+        ssize_t n;
+        //Create a new descriptor for the same file
+        int fd = open(fileName, O_RDONLY);
+        while ((n = readn(fd, buf, BUFSIZE)) > 0) {
+            if (writen(STDOUT_FILENO, buf, n) == -1) {
+                pexit("write in signal");
+            }
+            if (n == -1) {
+                pexit("read in signal");
+            }
+            if (close(fd) == -1) {
+                pexit("close in signal");
+            }
+        }
+    }
+    exit(0);
+}
+
 
 int main(int argc, char *argv[], char** envp){
-    int i,sockfd, batch_size, n_batches, n_port, j;
+    int i,sockfd, /*batch_size,*/ n_batches, n_port, j;
     long n_requests;
     char buffer[BUFSIZE];
     static struct sockaddr_in serv_addr;
     
-    //File
-    char* fileName = "sharedTextFile_threads.txt";
+    struct sigaction sa;
+    sa.sa_handler = handle_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+    
+    //signal(SIGINT, handle_signal);
     
     if (argc!=4 && argc !=5) {
         printf("Usage: ./client <SERVER IP ADDRESS> <LISTENING PORT>\n");
@@ -441,15 +486,18 @@ int main(int argc, char *argv[], char** envp){
     }
     
     //One thread to handle each reques
-    pthread_t thread_ids[batch_size];
+    //pthread_t thread_ids[batch_size];
     
-    /*printf("batch_size: %d\n", batch_size);
+    printf("batch_size: %d\n", batch_size);
     printf("n_batches: %d\n", n_batches);
-    printf("n_requests: %d\n", n_requests);*/
+    printf("n_requests: %ld\n", n_requests);/**/
+    
+    thread_ids = (pthread_t**)malloc(batch_size * sizeof(pthread_t*));
     
     TIMER_START();
     
     for (int i = 0; i < batch_size; i++) {
+        thread_ids[i] = (pthread_t*)malloc(n_batches * sizeof(pthread_t));
         for (int j = 0; j < n_batches && (i * n_batches + j) < n_requests; j++) {
             //Send the args info to the thread
             //ending time here to send the star time for each thread
@@ -464,28 +512,29 @@ int main(int argc, char *argv[], char** envp){
             args->j = j;
             args->file_fd = fd;
             
-            if(pthread_create(&thread_ids[i], NULL, handle_request, (void*)args) != 0){
+            if(pthread_create(&thread_ids[i][j], NULL, handle_request, (void*)args) != 0){
                 pexit("Thread creation error");
             }
         }
     }
     
     //Main thread will wait every thread to exit
-    for(int i = 0; i < batch_size; i++){
-        if(pthread_join(thread_ids[i], NULL) != 0){
-            pexit("Join error");
+    for (int i = 0; i < batch_size; i++) {
+        for (int j = 0; j < n_batches && (i * n_batches + j) < n_requests; j++) {
+            if(pthread_join(thread_ids[i][j], NULL) != 0){
+                        printf("Join error");
+            }
         }
-    }/**/
+    }
     
     //Now the main thread goes to the file and do the calculation
-    close(fd);
-    
     TIMER_STOP();
     //printf("Main thread here\n");
     fprintf(stderr, "%f s\n", time_delta);
     
     //Linked list:
     struct Node* head = NULL;
+    close(fd);
     readFromFile(fileName, &head);
     
     printLinkedList(head);
