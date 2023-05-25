@@ -318,7 +318,6 @@ void* handle_request(void* arg){
         
         bytes_received = recv(sockfd, buffer + total_bytes_received, BUFSIZE - total_bytes_received, 0);
         
-        
         if (bytes_received < 0){
             pexit("Failed to receive HTTP response");
         }
@@ -355,13 +354,14 @@ void* handle_request(void* arg){
     
     //Use mutex to lock the file while we are writing to it
     char toFile[MAX_LINE_SIZE];
+    TIMER_STOP();
     sprintf(toFile, "%lu;%d;%d;%s;%f\n", pthread_self(), info->j, info->i, response_code, time_delta/**/);
     //printf("%s\n", toFile);
-    TIMER_STOP();
+    
     
     //Lock the access to the shared file. Only one thread can write to it at time
 //    write function is thread safe
-    pthread_mutex_lock(&mutex);
+//    pthread_mutex_lock(&mutex);
     
     /*if(write(info->file_fd, toFile, strlen(toFile)) < 0){ //add writeN function
         pexit("writing to shared file error (thread)");
@@ -371,7 +371,7 @@ void* handle_request(void* arg){
         pexit("writing to shared file error (thread)");
     }
     
-    pthread_mutex_unlock(&mutex);
+//    pthread_mutex_unlock(&mutex);
     
     close(sockfd);
     free(info);
@@ -488,9 +488,9 @@ int main(int argc, char *argv[], char** envp){
     //One thread to handle each reques
     //pthread_t thread_ids[batch_size];
     
-    printf("batch_size: %d\n", batch_size);
+    /*printf("batch_size: %d\n", batch_size);
     printf("n_batches: %d\n", n_batches);
-    printf("n_requests: %ld\n", n_requests);/**/
+    printf("n_requests: %ld\n", n_requests);*/
     
     thread_ids = (pthread_t**)malloc(batch_size * sizeof(pthread_t*));
     
@@ -526,7 +526,8 @@ int main(int argc, char *argv[], char** envp){
             }
         }
     }
-    
+    close(fd);
+
     //Now the main thread goes to the file and do the calculation
     TIMER_STOP();
     //printf("Main thread here\n");
@@ -534,7 +535,6 @@ int main(int argc, char *argv[], char** envp){
     
     //Linked list:
     struct Node* head = NULL;
-    close(fd);
     readFromFile(fileName, &head);
     
     printLinkedList(head);
