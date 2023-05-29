@@ -63,7 +63,7 @@ The above command will launch the server in the 8080 port and it will start list
 
 ## Code Structure
 
-The code is divided into three sections:
+The code is divided into five sections:
 
 ### 1. Sequential
 
@@ -117,6 +117,21 @@ are used to synchronize the producer and consumer threads and control access to 
 The FSM implementation in this code is relatively simple and handles only a basic sequence of
 states for each client request. More complex FSMs might include additional states and transitions
 to handle more intricate request processing scenarios.
+
+### 5. Event-Driven State Machine
+
+The event-driven state machine implementation consists of a main thread that listens for new requests and multiple worker threads that process the incoming requests asynchronously. The main thread accepts incoming connections and places the request descriptors into a buffer, while the worker threads pick up the descriptors from the buffer and handle the requests based on their current state.
+
+The implementation utilizes synchronization mechanisms such as semaphores and mutexes to ensure thread safety and proper coordination between the main thread and worker threads.
+Below is an overview of the Event-Driven State Machine implementation in the code:
+
+1. eventState Function: The eventState function is the entry point for the worker threads. Each worker thread runs this function in parallel to process the requests. The function follows an infinite loop and waits for a request to arrive in the buffer using a semaphore. Once a request is available, the function locks a mutex to access the shared data in a thread-safe manner.
+
+Inside the loop, the function checks the current state of the request and performs the corresponding actions based on the state. It transitions the request through different states, such as READY, RECEIVING, PROCESSING, SENDING, and END. After each state transition, the function updates the shared data, releases the mutex, and signals the semaphore to notify the main thread or other worker threads.
+
+2. State Functions: There are several state functions that are called from the eventState function based on the current state of the request. These state functions perform specific actions related to each state. For example, the RECEIVING state function receives data from the client, the PROCESSING state function processes the received data, and the SENDING state function sends the processed data back to the client.
+
+3. Shared Data Structure: The requestDetails structure holds the shared data among the main thread and worker threads. It includes an array of request descriptors, an array of request states, an input index for the buffer, an output index for processing requests, a count of requests in the buffer, a buffer for returning processed data, and an array of file descriptors associated with each request.
 
 ## Limitations
 
