@@ -66,7 +66,8 @@ typedef enum{
     RECEIVING,
     PROCESSING,
     SENDING,
-    END
+    END,
+    DONE
 }state_t;
 /*  sometimes it can be helpful to use a struct to represent the states, especially if you have complex states that require additional information to be stored. */
     typedef struct {
@@ -78,26 +79,26 @@ typedef enum{
 /***************************************************************************************************/
 
 /********************************Event-Driven State Machinee global variables *****************/
-pthread_t event_threads_ids[CPU_CORES];
+pthread_t event_threads_ids[MAX_REQUESTS];
 pthread_mutex_t mutexEDSM = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexEDSM_TH = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t condEDSM  = PTHREAD_COND_INITIALIZER;
 
-pthread_cond_t condEDSM_READY = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condEDSM_RECEIVING = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condEDSM_PROCESSING = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condEDSM_SENDING = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condEDSM_END = PTHREAD_COND_INITIALIZER;
+//Semaphore
+dispatch_semaphore_t worker_threads_EDSM;
+dispatch_semaphore_t main_thread_EDSM;
+dispatch_semaphore_t state_change_EDSM;
 
 // Array of CPU cores
 int cpus[CPU_CORES] = {0, 1, 2, 3, 4, 5, 6, 7};
 
 typedef struct{
-    int descriptors[CPU_CORES];
-    state_t states[CPU_CORES];
+    int descriptors[MAX_REQUESTS];
+    state_t states[MAX_REQUESTS];
     int in;     // next free slot to insert a new request descriptor
     int out;    // next descriptor to process
     int count;  // number of requests in buffer
+    char** returnBuffer;
+    int file_fd[MAX_REQUESTS];
 } requestDetails;
 
 typedef struct {
@@ -137,6 +138,7 @@ void ready_state(state_t* current_state);
 char* receiving_state(int fd, int hit, state_t* current_state, char* buf);
 int processing_state(int fd, int hit, char* buffer, state_t* current_state);
 void sending_state(int fd, int hit, char* buffer, int file_fd, state_t* current_state);
+void sending_state_EDSM(int fd, int hit, char* buffer, int file_fd, state_t* current_state);
 void end_state(int fd, state_t* current_state);
 
 
@@ -179,7 +181,7 @@ int web(int fd, int hit){
 	int j, file_fd, buflen;
 	long i, ret, len;
 	char * fstr;
-	static char buffer[BUFSIZE+1]; /* static so zero filled */
+	/*static*/ char buffer[BUFSIZE+1]; /* static so zero filled */
     
 	ret = read(fd,buffer,BUFSIZE); 	/* read Web request in one go */
 	if(ret == 0 || ret == -1) {	/* read failure stop now */
@@ -438,7 +440,7 @@ int main(int argc, char **argv, char** envp){
 }*/
     /************************************************Blocking State Machine*****************************************************/
     //Semaphores
-    main_thread = dispatch_semaphore_create(MAX_REQUESTS);
+    /*main_thread = dispatch_semaphore_create(MAX_REQUESTS);
     worker_threads = dispatch_semaphore_create(0);
     //Initialise buffer
     request_buffer buffer = { .in = 0, .out = 0, .count = 0 };
@@ -497,19 +499,25 @@ int main(int argc, char **argv, char** envp){
     dispatch_release(main_thread);
     dispatch_release(worker_threads);
     
-}/**///Final curly
+}*///Final curly
     
     /****************************************Event-Driven State Machine*****************************************************/
     //Initialise request details
-    /*requestDetails buffer = { .in = 0, .out = 0, .count = 0 };
+    main_thread_EDSM = dispatch_semaphore_create(MAX_REQUESTS);
+    worker_threads_EDSM = dispatch_semaphore_create(0);
+    state_change_EDSM = dispatch_semaphore_create(0);
+    requestDetails buffer = { .in = 0, .out = 0, .count = 0 };
     
-    for(int i = 0; i < CPU_CORES; i++){
-        TH_EVENT_DRIVEN* info = (TH_EVENT_DRIVEN*)malloc(sizeof(TH_EVENT_DRIVEN));
-        info->threadNum = i;
-        info->details = &buffer;
-        info->details->states[i] = READY;
-        if(pthread_create(&event_threads_ids[i], NULL, eventState, (void*)info) != 0){
-            logger(ERROR,"system call", "thread", 0);
+    buffer.returnBuffer = (char**)malloc(MAX_REQUESTS * sizeof(char*));
+
+    for(int i = 0; i < MAX_REQUESTS; i++){
+        buffer.states[i] = READY;
+        buffer.returnBuffer[i] = (char*)malloc(BUFSIZ * sizeof(char));
+    }
+    
+    for(int i = 0; i < MAX_REQUESTS; i++){
+        if (pthread_create(&event_threads_ids[i], NULL, eventState, (void *)&buffer) != 0) {
+            logger(ERROR, "system call", "thread", 0);
         }
     }
     
@@ -523,18 +531,18 @@ int main(int argc, char **argv, char** envp){
         length = sizeof(cli_addr);
         socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
         if(socketfd < 0){
-            logger(ERROR,"system call","accept",0);
+            logger(ERROR,"system call","accept", 0);
         }
+        dispatch_semaphore_wait(main_thread_EDSM, DISPATCH_TIME_FOREVER);
         pthread_mutex_lock(&mutexEDSM);
-        //If the buffer is full:
-        while (buffer.count == CPU_CORES) {
-            pthread_cond_wait(&condEDSM, &mutexEDSM);
-        }
         buffer.descriptors[buffer.in] = socketfd;
+        buffer.in = (buffer.in + 1) % MAX_REQUESTS;
         buffer.count++;
         printf("Number of request on buffer: %d\n", buffer.count);
         pthread_mutex_unlock(&mutexEDSM);
-        pthread_cond_signal(&condEDSM);
+        dispatch_semaphore_signal(worker_threads_EDSM);
+        
+        dispatch_semaphore_signal(state_change_EDSM );
     }
     //Cleanup
     for (int i = 0; i < CPU_CORES; i++) {
@@ -551,11 +559,8 @@ int main(int argc, char **argv, char** envp){
     if(pthread_mutex_destroy(&mutexEDSM) != 0){
         pexit("Mutex destroy error");
     }
-    if(pthread_cond_destroy(&condEDSM) != 0){
-        pexit("Cond destroy error");
-    }
-
-}*///Final curly
+    
+}/**///Final curly
 
 void* toConsume(){
     int h = 1;
@@ -696,20 +701,38 @@ int processing_state(int fd, int hit, char* buffer, state_t* current_state) {
 }
 
 void sending_state(int fd, int hit, char* buffer, int file_fd, state_t* current_state) {
-    //printf("Sending function\n");
     logger(LOG,"SEND", &buffer[5], hit);
     long ret;
-    
+
     (void)write(fd, buffer, strlen(buffer));
     
     /* send file in 8KB block - last block may be smaller */
     while ((ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
         (void)write(fd,buffer,ret);
     }
+    
     close(file_fd);
     
     *current_state = END;
+
+    sleep(1);
+}
+
+void sending_state_EDSM(int fd, int hit, char* buffer, int file_fd, state_t* current_state) {
+    logger(LOG,"SEND", &buffer[5], hit);
+    long ret;
+
+    (void)write(fd, buffer, strlen(buffer));
     
+    /* send file in 8KB block - last block may be smaller */
+    /*while ((ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
+        (void)write(fd,buffer,ret);
+    }*/
+    
+    close(file_fd);
+    
+    *current_state = END;
+
     sleep(1);
 }
 
@@ -735,6 +758,7 @@ void* pool(void* args){
     while(1){
         // Wait for a request to arrive in the buffer
         dispatch_semaphore_wait(worker_threads, DISPATCH_TIME_FOREVER);
+
         //printf("A request arrived!\n");
         if(*current_state == READY){
             pthread_mutex_lock(&mutexFSM_TH);
@@ -777,74 +801,83 @@ void* pool(void* args){
 }*/
 
 void* eventState(void* args) {
-    TH_EVENT_DRIVEN* info_ = (TH_EVENT_DRIVEN*)args;
-    requestDetails* details = info_->details;
+    requestDetails* details = (requestDetails*)args;
     int hit = 1;
+    int descriptor;
+    char buf[BUFSIZE + 1];
+    int file_fd;
     
     while (1) {
+        // Wait for a request to arrive in the buffer
+        dispatch_semaphore_wait(worker_threads_EDSM, DISPATCH_TIME_FOREVER);
+        //state_change_EDSM
         pthread_mutex_lock(&mutexEDSM);
         
-        // Wait for a request to arrive in the buffer
-        while (details->count == 0) {
-            pthread_cond_wait(&condEDSM, &mutexEDSM);
-        }
-        //printf("A request arrived!\n");
+        printf("Thread %lu\n", pthread_self());
         int index = details->out;
+        descriptor = details->descriptors[index];
         state_t next_state = details->states[index];
-        char* return_buffer;
-        int file_fd;
+        char* return_buffer = details->returnBuffer[index];
         
+        pthread_mutex_unlock(&mutexEDSM);
+
+//        printf("Index: %d\n", details->out);
+//        printf("Next_State == READY: %d\n", next_state == READY);
+
         // Process request based on current state
         switch (next_state) {
             case READY:
-                printf("Ready\n");
+//                printf("Ready\n");
                 ready_state(&next_state);
-//                pthread_cond_signal(&condEDSM_READY);
                 pthread_mutex_lock(&mutexEDSM_TH);
                 details->states[index] = next_state;
                 pthread_mutex_unlock(&mutexEDSM_TH);
-                pthread_cond_signal(&condEDSM);
+//                printf("Done with the ready state!\n");
+                dispatch_semaphore_signal(worker_threads_EDSM);
                 break;
             case RECEIVING:
-               // return_buffer = receiving_state(details->descriptors[index], hit, &next_state, buf);
+//                printf("Receiving\n");
+                return_buffer = receiving_state(descriptor, hit, &next_state, buf);
+//                printf("Receiving 2\n");
                 pthread_mutex_lock(&mutexEDSM_TH);
                 details->states[index] = next_state;
+                details->returnBuffer[index] = return_buffer;
                 pthread_mutex_unlock(&mutexEDSM_TH);
-//                pthread_cond_signal(&condEDSM_RECEIVING);
-                pthread_cond_signal(&condEDSM);
+                dispatch_semaphore_signal(worker_threads_EDSM);
                 break;
             case PROCESSING:
-                file_fd = processing_state(details->descriptors[index], hit, return_buffer, &next_state);
-//                pthread_cond_signal(&condEDSM_PROCESSING);
+//                printf("PROCESSING\n");
+                file_fd = processing_state(descriptor, hit, return_buffer, &next_state);
                 pthread_mutex_lock(&mutexEDSM_TH);
                 details->states[index] = next_state;
+                details->file_fd[index] = file_fd;
                 pthread_mutex_unlock(&mutexEDSM_TH);
-                pthread_cond_signal(&condEDSM);
+                dispatch_semaphore_signal(worker_threads_EDSM);
                 break;
             case SENDING:
-                sending_state(details->descriptors[index], hit, return_buffer, file_fd, &next_state);
+//                printf("SENDING\n");
+                sending_state_EDSM(descriptor, hit, return_buffer, file_fd, &next_state);
+//                printf("SENDING 2\n");
                 pthread_mutex_lock(&mutexEDSM_TH);
                 details->states[index] = next_state;
                 pthread_mutex_unlock(&mutexEDSM_TH);
-//                pthread_cond_signal(&condEDSM_SENDING);
-                pthread_cond_signal(&condEDSM);
+//                printf("next_state == END: %d\n", next_state == END);
+                dispatch_semaphore_signal(worker_threads_EDSM);
                 break;
             case END:
+//                printf("END\n");
+                close(descriptor);
                 pthread_mutex_lock(&mutexEDSM_TH);
                 details->out = (details->out + 1) % MAX_REQUESTS;
                 details->count--;
-                details->states[index] = next_state;
+                details->states[index] = DONE;
                 pthread_mutex_unlock(&mutexEDSM_TH);
-//                pthread_cond_signal(&condEDSM_END);
                 hit++;
-                pthread_cond_signal(&condEDSM);
+                dispatch_semaphore_signal(main_thread_EDSM);
+                break;
+            case DONE:
                 break;
         }
-        
-//        pthread_cond_signal(&condEDSM);
     }
     return NULL;
 }
-
-
-
