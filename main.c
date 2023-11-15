@@ -178,15 +178,15 @@ void pipeToFile(int pipefd[], char* fileName) {
 struct Record saveToStruct(char buf[]){
     struct Record record;
     
-    char *field = strtok(buf, ";");
+    char *field = strtok_r(buf, ";");
     record.pid = atoi(field);
-    field = strtok(NULL, ";");
+    field = strtok_r(NULL, ";");
     record.bsn = atoi(field);
-    field = strtok(NULL, ";");
+    field = strtok_r(NULL, ";");
     record.rsn = atoi(field);
-    field = strtok(NULL, ";");
+    field = strtok_r(NULL, ";");
     record.rc = atoi(field);
-    field = strtok(NULL, ";");
+    field = strtok_r(NULL, ";");
     record.t = atof(field);
     
     return record;
